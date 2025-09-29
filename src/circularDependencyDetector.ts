@@ -83,6 +83,69 @@ export class CircularDependencyDetector {
     }
     
     /**
+     * Smart circular dependency checking - only check affected objects and their subgraph
+     * This is much faster than checking the entire project graph
+     */
+    public findCircularDependenciesInSubgraph(
+        dependencies: Map<string, DependencyNode>,
+        affectedObjects: string[]
+    ): CircularDependency[] {
+        if (affectedObjects.length === 0) {
+            return [];
+        }
+
+        // Build subgraph of affected objects and their immediate dependencies
+        const subgraph = this.buildAffectedSubgraph(dependencies, affectedObjects);
+        
+        // Only check circular dependencies within this subgraph
+        return this.findCircularDependencies(subgraph);
+    }
+
+    /**
+     * Build a subgraph containing only affected objects and objects they depend on/depended by
+     */
+    private buildAffectedSubgraph(
+        fullDependencies: Map<string, DependencyNode>,
+        affectedObjects: string[]
+    ): Map<string, DependencyNode> {
+        const subgraph = new Map<string, DependencyNode>();
+        const toProcess = new Set<string>(affectedObjects);
+        const processed = new Set<string>();
+
+        // Find all objects that could be involved in cycles with affected objects
+        while (toProcess.size > 0) {
+            const current = toProcess.values().next().value as string;
+            toProcess.delete(current);
+            
+            if (processed.has(current)) {
+                continue;
+            }
+            processed.add(current);
+
+            const currentNode = fullDependencies.get(current);
+            if (currentNode) {
+                subgraph.set(current, currentNode);
+
+                // Add all dependencies (objects this one depends on)
+                for (const dep of currentNode.dependencies) {
+                    if (!processed.has(dep) && fullDependencies.has(dep)) {
+                        toProcess.add(dep);
+                    }
+                }
+
+                // Add all dependents (objects that depend on this one)
+                for (const [nodeKey, node] of fullDependencies) {
+                    if (!processed.has(nodeKey) && node.dependencies.includes(current)) {
+                        toProcess.add(nodeKey);
+                    }
+                }
+            }
+        }
+
+        return subgraph;
+    }
+    
+    /**
      * Check if this specific edge is part of a circular path (ported from Python)
      */
     private isEdgeTrulyCircular(

@@ -102,7 +102,8 @@ export class CSharpFileWatcher {
 
         // File changed
         this.watcher.onDidChange((uri) => {
-            this.outputChannel.appendLine(`C# file modified: ${Utils.getRelativePath(uri.fsPath)}`);
+            this.outputChannel.appendLine(`📝 C# file modified: ${Utils.getRelativePath(uri.fsPath)}`);
+            this.outputChannel.appendLine(`   Full path: ${uri.fsPath}`);
             this.debouncedAnalysis(uri, 'change');
         });
 
@@ -115,15 +116,23 @@ export class CSharpFileWatcher {
 
     private async handleDebouncedChange(uri: vscode.Uri, changeType: 'create' | 'change' | 'delete'): Promise<void> {
         try {
+            this.outputChannel.appendLine(`🎯 Processing debounced change: ${Utils.getRelativePath(uri.fsPath)} (${changeType})`);
+            
             // Check if the file is in one of our configured project paths
-            if (!this.isFileInProjectPath(uri.fsPath)) {
+            const isInProjectPath = this.isFileInProjectPath(uri.fsPath);
+            this.outputChannel.appendLine(`🔍 File in project path: ${isInProjectPath}`);
+            
+            if (!isInProjectPath) {
+                this.outputChannel.appendLine(`❌ File not in configured project paths - skipping analysis`);
                 return;
             }
+
+            this.outputChannel.appendLine(`✅ File accepted for analysis - triggering dependency analysis...`);
 
             // Emit file change event
             eventBus.emit(Events.FILE_CHANGED, {
                 type: 'analysis_started',
-                data: { 
+                data: {
                     filePath: uri.fsPath,
                     changeType,
                     relativePath: Utils.getRelativePath(uri.fsPath)
@@ -135,12 +144,12 @@ export class CSharpFileWatcher {
             await this.onFileChanged(uri, changeType);
             
         } catch (error) {
-            this.outputChannel.appendLine(`Error handling file change: ${error}`);
+            this.outputChannel.appendLine(`❌ Error handling file change: ${error}`);
             console.error('Error handling file change:', error);
             
             eventBus.emit(Events.ANALYSIS_ERROR, {
                 type: 'error',
-                data: { 
+                data: {
                     error: error instanceof Error ? error.message : 'Unknown error',
                     filePath: uri.fsPath,
                     changeType
@@ -154,15 +163,23 @@ export class CSharpFileWatcher {
         const config = this.configManager.getConfig();
         const workspaceFolders = this.configManager.getWorkspaceFolders();
         
+        this.outputChannel.appendLine(`🔍 Checking if file is in project path: ${filePath}`);
+        this.outputChannel.appendLine(`   Configured project paths: ${config.projectPaths.join(', ')}`);
+        this.outputChannel.appendLine(`   Workspace folders: ${workspaceFolders.length}`);
+        
         for (const folder of workspaceFolders) {
+            this.outputChannel.appendLine(`   Checking workspace folder: ${folder.uri.fsPath}`);
             for (const projectPath of config.projectPaths) {
                 const fullProjectPath = vscode.Uri.joinPath(folder.uri, projectPath).fsPath;
+                this.outputChannel.appendLine(`     Checking against: ${fullProjectPath}`);
                 if (filePath.startsWith(fullProjectPath)) {
+                    this.outputChannel.appendLine(`     ✅ Match found!`);
                     return true;
                 }
             }
         }
         
+        this.outputChannel.appendLine(`     ❌ No match found in any project path`);
         return false;
     }
 

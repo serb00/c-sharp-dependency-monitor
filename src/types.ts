@@ -66,7 +66,7 @@ export interface ClassInfo {
     isNested: boolean;
     startLine: number;
     endLine: number;
-    classType: 'class' | 'struct' | 'interface';
+    classType: 'class' | 'struct' | 'interface' | 'enum' | 'record' | 'record struct' | 'delegate';
 }
 
 export interface UsingStatement {
@@ -121,6 +121,7 @@ export interface GraphNode {
     namespace?: string;
     isCircular: boolean;
     filePath?: string;
+    group?: number;
 }
 
 export interface GraphEdge {

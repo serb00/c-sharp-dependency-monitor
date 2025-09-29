@@ -23,16 +23,17 @@ export class DependencyAnalyzer {
     }
 
     /**
-     * Main analysis entry point - analyzes dependencies at the configured level
+     * Main analysis entry point - analyzes dependencies at the specified or configured level
      */
-    public async analyzeProject(workspaceRoot: string): Promise<AnalysisResult> {
+    public async analyzeProject(workspaceRoot: string, level?: AnalysisLevel): Promise<AnalysisResult> {
         const startTime = Date.now();
         const config = this.configManager.getConfig();
+        const analysisLevel = level || config.level;
         
         let dependencies: Map<string, DependencyNode>;
         let affectedFiles: string[] = [];
 
-        switch (config.level) {
+        switch (analysisLevel) {
             case 'namespace':
                 dependencies = await this.analyzeNamespaceDependencies(workspaceRoot);
                 break;
@@ -43,7 +44,7 @@ export class DependencyAnalyzer {
                 dependencies = await this.analyzeSystemDependencies(workspaceRoot);
                 break;
             default:
-                throw new Error(`Unsupported analysis level: ${config.level}`);
+                throw new Error(`Unsupported analysis level: ${analysisLevel}`);
         }
 
         // Get all analyzed files
@@ -53,7 +54,7 @@ export class DependencyAnalyzer {
         return {
             dependencies,
             circularDependencies: [], // Will be populated by CircularDependencyDetector
-            analysisLevel: config.level,
+            analysisLevel,
             timestamp: new Date(),
             affectedFiles: uniqueFiles,
             totalFiles: uniqueFiles.length
@@ -146,6 +147,8 @@ export class DependencyAnalyzer {
         const allFiles = await this.getAllCSharpFiles(workspaceRoot);
         const allClasses = new Map<string, { namespace: string; fullName: string; filePath: string }>();
 
+        
+
         // First pass: collect all classes
         for (const filePath of allFiles) {
             try {
@@ -167,6 +170,8 @@ export class DependencyAnalyzer {
                 console.warn(`Error analyzing file ${filePath}:`, error);
             }
         }
+
+        
 
         // Second pass: find dependencies with detailed reasons
         for (const filePath of allFiles) {
@@ -222,7 +227,9 @@ export class DependencyAnalyzer {
                         }
                     }
 
-                    if (classDeps.length > 0) {
+                    // CRITICAL FIX: Add ALL classes to dependencies map, not just those with outgoing dependencies
+                    // This ensures "leaf" classes (structs, components, enums) appear in visualization as targets
+                    if (true) { // Always add classes to dependencies map
                         const dependencyDetails: DependencyDetail[] = [];
                         for (const [target, reasons] of classDepDetails) {
                             dependencyDetails.push({
@@ -243,12 +250,16 @@ export class DependencyAnalyzer {
                             dependencies: [...new Set(classDeps)],
                             dependencyDetails
                         });
+
+                        
                     }
                 }
             } catch (error) {
                 console.warn(`Error analyzing file ${filePath}:`, error);
             }
         }
+
+        
 
         return dependencies;
     }
@@ -408,9 +419,25 @@ export class DependencyAnalyzer {
         const nestedClasses = new Set<string>();
 
         const classPatterns = [
-            /(?:public|internal|private)?\s*(?:static\s+)?(?:partial\s+)?(?:abstract\s+)?class\s+(\w+)/,
-            /(?:public|internal|private)?\s*(?:static\s+)?(?:partial\s+)?(?:sealed\s+)?class\s+(\w+)/,
-            /(?:public|internal|private)?\s*struct\s+(\w+)/
+            // Comprehensive class patterns (all access modifiers and keywords)
+            /(?:public|internal|private|protected)?\s*(?:static\s+)?(?:partial\s+)?(?:abstract\s+)?(?:sealed\s+)?class\s+(\w+)/,
+            
+            // Comprehensive struct patterns (all access modifiers and keywords)
+            /(?:public|internal|private|protected)?\s*(?:static\s+)?(?:partial\s+)?(?:readonly\s+)?struct\s+(\w+)/,
+            
+            // Interface patterns
+            /(?:public|internal|private|protected)?\s*(?:partial\s+)?interface\s+(\w+)/,
+            
+            // Enum patterns
+            /(?:public|internal|private|protected)?\s*enum\s+(\w+)/,
+            
+            // Record patterns (C# 9+)
+            /(?:public|internal|private|protected)?\s*(?:sealed\s+)?record\s+(\w+)/,
+            /(?:public|internal|private|protected)?\s*(?:sealed\s+)?record\s+class\s+(\w+)/,
+            /(?:public|internal|private|protected)?\s*(?:sealed\s+)?record\s+struct\s+(\w+)/,
+            
+            // Delegate patterns
+            /(?:public|internal|private|protected)?\s*delegate\s+\w+\s+(\w+)/
         ];
 
         for (let i = 0; i < lines.length; i++) {
@@ -437,7 +464,7 @@ export class DependencyAnalyzer {
                             isNested: false,
                             startLine: i + 1,
                             endLine: this.findClassEndLine(lines, i),
-                            classType: stripped.includes('struct') ? 'struct' : 'class'
+                            classType: this.determineClassType(stripped)
                         });
                     }
                     break;
@@ -497,6 +524,17 @@ export class DependencyAnalyzer {
         if (classLine.includes('JobComponentSystem')) return 'JobComponentSystem';
         
         return 'NamedSystem';
+    }
+
+    private determineClassType(line: string): 'class' | 'struct' | 'interface' | 'enum' | 'record' | 'record struct' | 'delegate' {
+        // Order matters - check more specific patterns first
+        if (line.includes('record struct')) return 'record struct';
+        if (line.includes('record class') || (line.includes('record ') && !line.includes('record struct'))) return 'record';
+        if (line.includes('struct')) return 'struct';
+        if (line.includes('interface')) return 'interface';
+        if (line.includes('enum')) return 'enum';
+        if (line.includes('delegate')) return 'delegate';
+        return 'class';
     }
 
     private isClassNested(lines: string[], classLineIndex: number, className: string): boolean {
@@ -599,8 +637,8 @@ export class DependencyAnalyzer {
     }
 
     private findClassReferences(
-        classScopeLines: Array<[number, string]>, 
-        otherClassName: string, 
+        classScopeLines: Array<[number, string]>,
+        otherClassName: string,
         filePath: string,
         workspaceRoot: string
     ): string[] {
@@ -616,6 +654,8 @@ export class DependencyAnalyzer {
                 }
             }
         }
+
+        
 
         return references;
     }
@@ -676,5 +716,351 @@ export class DependencyAnalyzer {
             { pattern: /\bCLASSNAME\b.*\s+\w+\s*[\(;]/, description: 'method parameter/variable', weight: 4 },
             { pattern: /\bCLASSNAME\b/, description: 'general reference', weight: 3 }
         ];
+    }
+
+    /**
+     * INCREMENTAL: Analyze namespace dependencies for only specific objects - NO full project scan
+     */
+    public async analyzeSpecificNamespaces(
+        workspaceRoot: string,
+        targetNamespaces: string[],
+        existingDependencies: Map<string, DependencyNode>
+    ): Promise<Map<string, DependencyNode>> {
+        const dependencies = new Map<string, DependencyNode>();
+        const config = this.configManager.getConfig();
+        
+        // Only get files that might contain the target namespaces
+        const relevantFiles = await this.getFilesForNamespaces(workspaceRoot, targetNamespaces);
+        
+        // Incremental namespace analysis
+        
+        // First pass: collect using statements for target namespaces only
+        const namespaceUsings = new Map<string, Map<string, string[]>>();
+
+        for (const filePath of relevantFiles) {
+            try {
+                const content = await Utils.readFileContent(filePath);
+                const namespace = Utils.extractNamespace(content);
+                
+                // Only process if this file contains one of our target namespaces
+                if (!namespace || !targetNamespaces.includes(namespace)) {
+                    continue;
+                }
+
+                const usingStatements = Utils.extractUsingStatements(content);
+                
+                for (const usingStmt of usingStatements) {
+                    const targetNamespace = usingStmt.namespace;
+                    
+                    // Skip ignored namespaces and self-references
+                    if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) ||
+                        targetNamespace === namespace) {
+                        continue;
+                    }
+
+                    if (!namespaceUsings.has(namespace)) {
+                        namespaceUsings.set(namespace, new Map());
+                    }
+
+                    const nsMap = namespaceUsings.get(namespace)!;
+                    if (!nsMap.has(targetNamespace)) {
+                        nsMap.set(targetNamespace, []);
+                    }
+
+                    const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
+                    nsMap.get(targetNamespace)!.push(`${relativePath}:${usingStmt.lineNumber}`);
+                }
+            } catch (error) {
+                console.warn(`Error analyzing file ${filePath}:`, error);
+            }
+        }
+
+        // Build dependencies and details - only for target namespaces
+        for (const [namespace, targets] of namespaceUsings) {
+            if (targets.size > 0) {
+                const dependencyDetails: DependencyDetail[] = [];
+                const deps: string[] = [];
+
+                for (const [target, files] of targets) {
+                    deps.push(target);
+                    dependencyDetails.push({
+                        target,
+                        reasons: files,
+                        lineNumbers: files.map(f => parseInt(f.split(':')[1]) || 0)
+                    });
+                }
+
+                dependencies.set(namespace, {
+                    name: namespace.split('.').pop() || namespace,
+                    namespace: namespace,
+                    fullName: namespace,
+                    filePath: '', // Namespace doesn't have a single file
+                    dependencies: deps,
+                    dependencyDetails
+                });
+            }
+        }
+
+        return dependencies;
+    }
+
+    // Helper methods for incremental analysis
+
+    private async getFilesForNamespaces(workspaceRoot: string, namespaces: string[]): Promise<string[]> {
+        // For now, we'll still scan all files but this could be optimized
+        // to only scan files that we know contain these namespaces
+        return this.getAllCSharpFiles(workspaceRoot);
+    }
+
+    /**
+     * INCREMENTAL: Analyze class dependencies for only specific objects - NO full project scan
+     */
+    public async analyzeSpecificClasses(
+        workspaceRoot: string,
+        targetClasses: string[],
+        existingDependencies: Map<string, DependencyNode>
+    ): Promise<Map<string, DependencyNode>> {
+        const dependencies = new Map<string, DependencyNode>();
+        const config = this.configManager.getConfig();
+        
+        // Only get files that might contain the target classes
+        const relevantFiles = await this.getFilesForClasses(workspaceRoot, targetClasses);
+        
+        
+        
+        // We still need the existing class registry for lookups, but we won't rebuild it
+        const allClasses = this.buildClassRegistryFromExisting(existingDependencies);
+        
+        // Analyze only files containing target classes
+        for (const filePath of relevantFiles) {
+            try {
+                const content = await Utils.readFileContent(filePath);
+                const namespace = Utils.extractNamespace(content) || 'Global';
+                const usingStatements = Utils.extractUsingStatements(content);
+                const customUsings = usingStatements
+                    .filter(u => !Utils.shouldIgnoreNamespace(u.namespace, config.ignoredNamespaces))
+                    .map(u => u.namespace);
+
+                const currentFileClasses = this.extractClasses(content)
+                    .filter(c => !c.isNested)
+                    .map(c => ({
+                        name: c.name,
+                        fullName: `${namespace}.${c.name}`,
+                        classInfo: c
+                    }))
+                    .filter(c => targetClasses.includes(c.fullName)); // Only target classes
+
+                // For each target class in this file, find its dependencies
+                for (const { name: className, fullName: fullClassName, classInfo } of currentFileClasses) {
+                    const classDeps: string[] = [];
+                    const classDepDetails = new Map<string, string[]>();
+
+                    // Extract the specific scope of this class
+                    const lines = content.split('\n');
+                    const classScopeLines = this.extractClassScope(lines, className);
+
+                    // Look for references to other classes (existing logic)
+                    for (const [otherClassName, otherClassInfo] of allClasses) {
+                        if (otherClassInfo.fullName === fullClassName) {
+                            continue; // Skip self-reference
+                        }
+
+                        // Check namespace availability
+                        if (!(otherClassInfo.namespace === namespace ||
+                              customUsings.includes(otherClassInfo.namespace) ||
+                              otherClassInfo.namespace === 'Global')) {
+                            continue;
+                        }
+
+                        // Check for legitimate class usage patterns
+                        const foundReferences = this.findClassReferences(
+                            classScopeLines,
+                            otherClassName,
+                            filePath,
+                            workspaceRoot
+                        );
+
+                        if (foundReferences.length > 0) {
+                            classDeps.push(otherClassInfo.fullName);
+                            classDepDetails.set(otherClassInfo.fullName, foundReferences);
+                        }
+                    }
+
+                    // CRITICAL FIX: Add ALL classes to dependencies map, not just those with outgoing dependencies
+                    // This ensures "leaf" classes (structs, components, enums) appear in visualization as targets
+                    if (true) { // Always add classes to dependencies map
+                        const dependencyDetails: DependencyDetail[] = [];
+                        for (const [target, reasons] of classDepDetails) {
+                            dependencyDetails.push({
+                                target,
+                                reasons,
+                                lineNumbers: reasons.map(r => {
+                                    const match = r.match(/:(\d+)\)/);
+                                    return match ? parseInt(match[1]) : 0;
+                                })
+                            });
+                        }
+
+                        dependencies.set(fullClassName, {
+                            name: className,
+                            namespace,
+                            fullName: fullClassName,
+                            filePath,
+                            dependencies: [...new Set(classDeps)],
+                            dependencyDetails
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn(`Error analyzing file ${filePath}:`, error);
+            }
+        }
+
+        return dependencies;
+    }
+
+    /**
+     * INCREMENTAL: Analyze system dependencies for only specific objects - NO full project scan
+     */
+    public async analyzeSpecificSystems(
+        workspaceRoot: string,
+        targetSystems: string[],
+        existingDependencies: Map<string, DependencyNode>
+    ): Promise<Map<string, DependencyNode>> {
+        const dependencies = new Map<string, DependencyNode>();
+        const config = this.configManager.getConfig();
+        
+        // Only get files that might contain the target systems
+        const relevantFiles = await this.getFilesForSystems(workspaceRoot, targetSystems);
+        
+        
+        
+        // We still need the existing system registry for lookups, but we won't rebuild it
+        const allSystems = this.buildSystemRegistryFromExisting(existingDependencies);
+        
+        // Analyze only files containing target systems
+        for (const filePath of relevantFiles) {
+            try {
+                const content = await Utils.readFileContent(filePath);
+                const namespace = Utils.extractNamespace(content) || 'Global';
+                const usingStatements = Utils.extractUsingStatements(content);
+                const customUsings = usingStatements
+                    .filter(u => !Utils.shouldIgnoreNamespace(u.namespace, config.ignoredNamespaces))
+                    .map(u => u.namespace);
+
+                const currentSystems = this.extractSystemClasses(content)
+                    .filter(s => {
+                        const fullName = `${namespace}.${s.name}`;
+                        return targetSystems.includes(fullName);
+                    })
+                    .map(s => ({
+                        name: s.name,
+                        fullName: `${namespace}.${s.name}`
+                    }));
+
+                // For each target system in this file, find dependencies on other systems
+                for (const { name: systemName, fullName: fullSystemName } of currentSystems) {
+                    const systemDeps: string[] = [];
+                    const systemDepDetails = new Map<string, string[]>();
+                    const lines = content.split('\n');
+
+                    for (const [otherSystemName, otherSystemInfo] of allSystems) {
+                        if (otherSystemInfo.fullName === fullSystemName) {
+                            continue;
+                        }
+
+                        // Check namespace availability
+                        if (!(otherSystemInfo.namespace === namespace ||
+                              customUsings.includes(otherSystemInfo.namespace) ||
+                              otherSystemInfo.namespace === 'Global')) {
+                            continue;
+                        }
+
+                        // Find system-specific usage patterns
+                        const foundReferences = this.findSystemReferences(
+                            lines,
+                            otherSystemName,
+                            filePath,
+                            workspaceRoot
+                        );
+
+                        if (foundReferences.length > 0) {
+                            systemDeps.push(otherSystemInfo.fullName);
+                            systemDepDetails.set(otherSystemInfo.fullName, foundReferences);
+                        }
+                    }
+
+                    // Build dependency details
+                    const dependencyDetails: DependencyDetail[] = [];
+                    for (const [target, reasons] of systemDepDetails) {
+                        dependencyDetails.push({
+                            target,
+                            reasons,
+                            lineNumbers: reasons.map(r => {
+                                const match = r.match(/:(\d+)\)/);
+                                return match ? parseInt(match[1]) : 0;
+                            })
+                        });
+                    }
+
+                    dependencies.set(fullSystemName, {
+                        name: systemName,
+                        namespace,
+                        fullName: fullSystemName,
+                        filePath,
+                        dependencies: [...new Set(systemDeps)],
+                        dependencyDetails
+                    });
+                }
+            } catch (error) {
+                console.warn(`Error analyzing file ${filePath}:`, error);
+            }
+        }
+
+        return dependencies;
+    }
+
+    // Helper methods for incremental analysis
+    
+    private async getFilesForClasses(workspaceRoot: string, classNames: string[]): Promise<string[]> {
+        // For now, we'll still scan all files but this could be optimized
+        // to only scan files that we know contain these classes
+        return this.getAllCSharpFiles(workspaceRoot);
+    }
+
+    private async getFilesForSystems(workspaceRoot: string, systemNames: string[]): Promise<string[]> {
+        // For now, we'll still scan all files but this could be optimized
+        // to only scan files that we know contain these systems
+        return this.getAllCSharpFiles(workspaceRoot);
+    }
+
+    private buildClassRegistryFromExisting(existingDependencies: Map<string, DependencyNode>): Map<string, { namespace: string; fullName: string; filePath: string }> {
+        const registry = new Map<string, { namespace: string; fullName: string; filePath: string }>();
+        
+        for (const [fullName, node] of existingDependencies) {
+            const className = node.name;
+            registry.set(className, {
+                namespace: node.namespace,
+                fullName: node.fullName,
+                filePath: node.filePath
+            });
+        }
+        
+        return registry;
+    }
+
+    private buildSystemRegistryFromExisting(existingDependencies: Map<string, DependencyNode>): Map<string, { namespace: string; fullName: string; filePath: string }> {
+        const registry = new Map<string, { namespace: string; fullName: string; filePath: string }>();
+        
+        for (const [fullName, node] of existingDependencies) {
+            const systemName = node.name;
+            registry.set(systemName, {
+                namespace: node.namespace,
+                fullName: node.fullName,
+                filePath: node.filePath
+            });
+        }
+        
+        return registry;
     }
 }

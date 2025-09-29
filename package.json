@@ -34,6 +34,16 @@
         "category": "C# Dependencies"
       },
       {
+        "command": "csharpDependencyMonitor.showCacheStats",
+        "title": "C# Dependencies: Show Cache Statistics",
+        "category": "C# Dependencies"
+      },
+      {
+        "command": "csharpDependencyMonitor.exportCacheDebug",
+        "title": "C# Dependencies: Export Cache Debug Info",
+        "category": "C# Dependencies"
+      },
+      {
         "command": "csharpDependencyMonitor.toggleRealTimeAnalysis",
         "title": "C# Dependencies: Toggle Real-time Analysis",
         "category": "C# Dependencies"

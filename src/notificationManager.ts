@@ -362,7 +362,7 @@ export class NotificationManager {
     }
 
     /**
-     * Request to show dependency graph (will be implemented in visualization phase)
+     * Request to show dependency graph
      */
     private async showDependencyGraph(analysisResult: AnalysisResult): Promise<void> {
         eventBus.emit(Events.VISUALIZATION_REQUESTED, {
@@ -371,9 +371,8 @@ export class NotificationManager {
             timestamp: new Date()
         });
 
-        await vscode.window.showInformationMessage(
-            'Dependency graph visualization coming soon! Check the output panel for details.'
-        );
+        // The visualization will be handled by the extension's event listener
+        // No need to show a placeholder message anymore
     }
 
     /**
