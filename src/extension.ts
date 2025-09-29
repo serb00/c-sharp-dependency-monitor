@@ -725,12 +725,13 @@ async function showVisualizationCommand() {
         let analysisResult = await cacheManager.getCachedAnalysis(visualizationConfig.level);
         
         if (!analysisResult) {
-            // Only perform analysis if absolutely no cache exists
-            outputChannel.appendLine('No cache available - performing fresh analysis for visualization');
-            analysisResult = await dependencyAnalyzer.analyzeProject(workspaceRoot);
+            // Only perform analysis if absolutely no cache exists - use NEW OPTIMIZED SYSTEM
+            outputChannel.appendLine('No cache available - using optimized cascading analysis for visualization');
+            analysisResult = await performIncrementalCascadingAnalysis('', workspaceRoot);
             
-            // Cache the new result
-            await cacheManager.cacheAnalysis(analysisResult);
+            if (!analysisResult) {
+                throw new Error('Cascading analysis failed to produce results for visualization');
+            }
         } else {
             outputChannel.appendLine(`✅ Using cached analysis for instant visualization (${analysisResult.dependencies.size} dependencies)`);
         }
@@ -742,6 +743,9 @@ async function showVisualizationCommand() {
         
         // Update analysis result
         analysisResult.circularDependencies = circularDependencies;
+        
+        // Update status bar with the analysis results (this was missing!)
+        statusBarManager.updateStatus(analysisResult);
         
         // Show visualization panel
         await visualizationPanel.show(analysisResult);

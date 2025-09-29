@@ -24,11 +24,23 @@ export class DependencyAnalyzer {
 
     /**
      * Main analysis entry point - analyzes dependencies at the specified or configured level
+     * LEGITIMATE USE: Called by cascading analysis system for initial full analysis when no cache exists
+     * DEPRECATED USE: Direct calls from outside cascading system should use performIncrementalCascadingAnalysis()
      */
     public async analyzeProject(workspaceRoot: string, level?: AnalysisLevel): Promise<AnalysisResult> {
         const startTime = Date.now();
         const config = this.configManager.getConfig();
         const analysisLevel = level || config.level;
+        
+        // Check if this is being called from the legitimate cascading analysis system
+        const stackTrace = new Error().stack || '';
+        const isCalledFromCascadingSystem = stackTrace.includes('analyzeNamespaceLevel') ||
+                                          stackTrace.includes('analyzeClassLevel') ||
+                                          stackTrace.includes('analyzeSystemLevel');
+        
+        if (!isCalledFromCascadingSystem) {
+            console.warn('⚠️  DEPRECATION WARNING: analyzeProject() called from outside the optimized cascading analysis system. For new code, please use performIncrementalCascadingAnalysis() instead.');
+        }
         
         let dependencies: Map<string, DependencyNode>;
         let affectedFiles: string[] = [];
