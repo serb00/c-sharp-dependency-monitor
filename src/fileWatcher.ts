@@ -45,11 +45,9 @@ export class CSharpFileWatcher {
             this.isEnabled = true;
             this.outputChannel.appendLine('File watcher started - monitoring C# files for changes');
             
-            eventBus.emit(Events.ANALYSIS_STARTED, {
-                type: 'analysis_started',
-                data: { source: 'file_watcher', action: 'started' },
-                timestamp: new Date()
-            });
+            // NOTE: Removed ANALYSIS_STARTED event emission here - starting file watcher
+            // doesn't mean analysis is starting, it just means monitoring is now active.
+            // This was causing the status bar to show "Analyzing" when it should show "Not Initialized"
             
         } catch (error) {
             this.outputChannel.appendLine(`Failed to start file watcher: ${error}`);
@@ -69,11 +67,8 @@ export class CSharpFileWatcher {
             
             this.outputChannel.appendLine('File watcher stopped');
             
-            eventBus.emit(Events.ANALYSIS_STARTED, {
-                type: 'analysis_started',
-                data: { source: 'file_watcher', action: 'stopped' },
-                timestamp: new Date()
-            });
+            // NOTE: Removed inappropriate ANALYSIS_STARTED event emission - stopping file watcher
+            // doesn't relate to analysis starting. This was a leftover from old implementation.
             
         } catch (error) {
             this.outputChannel.appendLine(`Failed to stop file watcher: ${error}`);

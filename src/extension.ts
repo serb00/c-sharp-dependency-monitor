@@ -107,6 +107,8 @@ async function initializeExtension(context: vscode.ExtensionContext) {
                 outputChannel.appendLine(`✅ Extension ready with cached data: ${circularDependencies.length} circular dependencies detected`);
             } else {
                 outputChannel.appendLine('ℹ️ No cached data available - will analyze on first file change or manual request');
+                // Explicitly set status bar to uninitialized state
+                statusBarManager.updateStatus(); // This will trigger the uninitialized state since no result is passed
             }
         }
     } else {
@@ -274,34 +276,47 @@ async function performIncrementalCascadingAnalysis(
     changedFilePath: string,
     workspaceRoot: string
 ): Promise<AnalysisResult | null> {
-    outputChannel.appendLine(`Analyzing: ${Utils.getRelativePath(changedFilePath)}`);
-    
-    // 1. NAMESPACE LEVEL (fastest)
-    const namespaceResult = await analyzeNamespaceLevel(workspaceRoot, changedFilePath);
-    
-    if (namespaceResult && namespaceResult.circularDependencies && namespaceResult.circularDependencies.length > 0) {
-        outputChannel.appendLine(`Found ${namespaceResult.circularDependencies.length} circular dependencies at namespace level`);
-        return namespaceResult;
+    if (changedFilePath) {
+        outputChannel.appendLine(`Analyzing: ${Utils.getRelativePath(changedFilePath)}`);
+    } else {
+        outputChannel.appendLine('Performing full project analysis (all levels)');
     }
     
-    // 2. CLASS LEVEL (more detailed)
-    const classResult = await analyzeClassLevel(workspaceRoot, changedFilePath);
-    
-    if (classResult && classResult.circularDependencies && classResult.circularDependencies.length > 0) {
-        outputChannel.appendLine(`Found ${classResult.circularDependencies.length} circular dependencies at class level`);
-        return classResult;
+    try {
+        // 1. NAMESPACE LEVEL (fastest)
+        outputChannel.appendLine('🔍 Starting namespace level analysis...');
+        const namespaceResult = await analyzeNamespaceLevel(workspaceRoot, changedFilePath);
+        
+        if (namespaceResult && namespaceResult.circularDependencies && namespaceResult.circularDependencies.length > 0) {
+            outputChannel.appendLine(`Found ${namespaceResult.circularDependencies.length} circular dependencies at namespace level`);
+            return namespaceResult;
+        }
+        
+        // 2. CLASS LEVEL (more detailed)
+        outputChannel.appendLine('🔍 Starting class level analysis...');
+        const classResult = await analyzeClassLevel(workspaceRoot, changedFilePath);
+        
+        if (classResult && classResult.circularDependencies && classResult.circularDependencies.length > 0) {
+            outputChannel.appendLine(`Found ${classResult.circularDependencies.length} circular dependencies at class level`);
+            return classResult;
+        }
+        
+        // 3. SYSTEM LEVEL (most specific)
+        outputChannel.appendLine('🔍 Starting system level analysis...');
+        const systemResult = await analyzeSystemLevel(workspaceRoot, changedFilePath);
+        
+        if (systemResult && systemResult.circularDependencies && systemResult.circularDependencies.length > 0) {
+            outputChannel.appendLine(`Found ${systemResult.circularDependencies.length} circular dependencies at system level`);
+            return systemResult;
+        }
+        
+        // Return the most detailed analysis (system level) even if no circular deps found
+        outputChannel.appendLine('✅ Cascading analysis completed successfully');
+        return systemResult || classResult || namespaceResult;
+    } catch (error) {
+        outputChannel.appendLine(`❌ Error in cascading analysis: ${error}`);
+        throw error;
     }
-    
-    // 3. SYSTEM LEVEL (most specific)
-    const systemResult = await analyzeSystemLevel(workspaceRoot, changedFilePath);
-    
-    if (systemResult && systemResult.circularDependencies && systemResult.circularDependencies.length > 0) {
-        outputChannel.appendLine(`Found ${systemResult.circularDependencies.length} circular dependencies at system level`);
-        return systemResult;
-    }
-    
-    // Return the most detailed analysis (system level) even if no circular deps found
-    return systemResult || classResult || namespaceResult;
 }
 
 /**
@@ -634,7 +649,8 @@ async function analyzeProjectCommand() {
             return;
         }
         
-        await Utils.showInfoMessage('Starting C# dependency analysis...');
+        Utils.showInfoMessage('Starting C# dependency analysis...');
+        outputChannel.appendLine('🚀 Manual analysis triggered by user click');
         
         // Emit analysis started event
         eventBus.emit(Events.ANALYSIS_STARTED, {
@@ -646,28 +662,13 @@ async function analyzeProjectCommand() {
             timestamp: new Date()
         });
         
-        // Check cache first
-        const config = configManager.getConfig();
-        let analysisResult = await cacheManager.getCachedAnalysis(config.level);
+        // Use the SAME cascading analysis system as file watcher for consistency
+        outputChannel.appendLine('🔄 Using cascading analysis system (namespace → class → system)');
+        const analysisResult = await performIncrementalCascadingAnalysis('', workspaceRoot);
         
         if (!analysisResult) {
-            // Cache miss - perform full project analysis
-            outputChannel.appendLine('Cache miss - performing full analysis');
-            analysisResult = await dependencyAnalyzer.analyzeProject(workspaceRoot);
-            
-            // Cache the new result
-            await cacheManager.cacheAnalysis(analysisResult);
-        } else {
-            outputChannel.appendLine('Using cached analysis result');
+            throw new Error('Cascading analysis failed to produce results');
         }
-        
-        // Detect circular dependencies - use full analysis for visualization
-        const circularDependencies = circularDependencyDetector.findCircularDependencies(
-            analysisResult.dependencies
-        );
-        
-        // Update analysis result
-        analysisResult.circularDependencies = circularDependencies;
         
         const analysisTime = Date.now() - startTime;
         const analysisDisplayConfig = configManager.getConfig();
@@ -676,7 +677,7 @@ async function analyzeProjectCommand() {
         outputChannel.appendLine(`Analysis level: ${analysisDisplayConfig.level}`);
         outputChannel.appendLine(`Files analyzed: ${analysisResult.totalFiles}`);
         outputChannel.appendLine(`Dependencies found: ${analysisResult.dependencies.size}`);
-        outputChannel.appendLine(`Circular dependencies: ${circularDependencies.length}`);
+        outputChannel.appendLine(`Circular dependencies: ${analysisResult.circularDependencies?.length || 0}`);
         
         // Update status bar
         statusBarManager.updateStatus(analysisResult);
@@ -760,6 +761,11 @@ async function clearCacheCommand() {
         await cacheManager.clearCache();
         notificationManager.clearNotificationState();
         
+        // Update status bar to uninitialized state after cache clear
+        // Clear the cached result first, then update
+        statusBarManager.clearCachedResult();
+        statusBarManager.updateStatus(); // No result parameter = uninitialized state
+        
         eventBus.emit(Events.CACHE_CLEARED, {
             type: 'cache_cleared',
             data: {},
@@ -767,6 +773,7 @@ async function clearCacheCommand() {
         });
         
         outputChannel.appendLine('All caches and notification state cleared');
+        outputChannel.appendLine('Status bar updated to uninitialized state');
         await Utils.showInfoMessage('Cache cleared successfully!');
         
     } catch (error) {

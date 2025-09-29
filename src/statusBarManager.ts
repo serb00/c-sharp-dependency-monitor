@@ -87,10 +87,11 @@ export class StatusBarManager {
         }
 
         if (!result) {
-            // No analysis results yet
-            this.statusBarItem.text = '$(search) C# Deps: Ready';
-            this.statusBarItem.tooltip = `C# Dependency Monitor - Analysis Level: ${config.level}\nReal-time: ${config.enableRealTime ? 'On' : 'Off'}\nClick to analyze project`;
-            this.statusBarItem.backgroundColor = undefined;
+            // No analysis results yet - uninitialized state
+            this.statusBarItem.text = '$(telescope) C# Deps: Not Initialized';
+            this.statusBarItem.tooltip = this.buildUninitializedTooltip(config);
+            this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground'); // Yellow to indicate action needed
+            this.statusBarItem.command = 'csharpDependencyMonitor.analyzeProject'; // Run analysis on click
             return;
         }
 
@@ -238,6 +239,33 @@ export class StatusBarManager {
     }
 
     /**
+     * Build tooltip for uninitialized state (no cache/first launch)
+     */
+    private buildUninitializedTooltip(config: any): string {
+        const lines = [
+            '🔍 C# Dependency Monitor',
+            '',
+            '📋 Extension Overview:',
+            '• Analyzes C# project dependencies',
+            '• Detects circular dependencies',
+            '• Real-time monitoring with intelligent caching',
+            '• Visual dependency graphs',
+            '',
+            '⚙️ Current Configuration:',
+            `• Real-time monitoring: ${config.enableRealTime ? 'On' : 'Off'}`,
+            `• Notifications: ${config.enableNotifications ? 'On' : 'Off'}`,
+            '',
+            '🚀 Getting Started:',
+            '• Click here to run initial analysis',
+            '• Or use Cmd+Shift+P → "C# Dependencies: Analyze Project"',
+            '',
+            '💡 Tip: After first analysis, the extension will monitor',
+            '   file changes automatically for optimal performance!'
+        ];
+        return lines.join('\n');
+    }
+
+    /**
      * Format timestamp for display
      */
     private formatTimestamp(timestamp: Date): string {
@@ -316,6 +344,13 @@ export class StatusBarManager {
      */
     public setCommand(command: string): void {
         this.statusBarItem.command = command;
+    }
+
+    /**
+     * Clear cached analysis result (for cache clear operations)
+     */
+    public clearCachedResult(): void {
+        this.lastAnalysisResult = undefined;
     }
 
     /**
