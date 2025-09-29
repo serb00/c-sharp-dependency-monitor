@@ -7,17 +7,80 @@
     "vscode": "^1.104.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Programming Languages",
+    "Linters"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onLanguage:csharp",
+    "workspaceContains:**/*.cs"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "c-sharp-dependency-monitor.helloWorld",
-        "title": "Hello World"
+        "command": "csharpDependencyMonitor.analyzeProject",
+        "title": "C# Dependencies: Analyze Project",
+        "category": "C# Dependencies"
+      },
+      {
+        "command": "csharpDependencyMonitor.showVisualization",
+        "title": "C# Dependencies: Show Graph",
+        "category": "C# Dependencies"
+      },
+      {
+        "command": "csharpDependencyMonitor.clearCache",
+        "title": "C# Dependencies: Clear Cache",
+        "category": "C# Dependencies"
+      },
+      {
+        "command": "csharpDependencyMonitor.toggleRealTimeAnalysis",
+        "title": "C# Dependencies: Toggle Real-time Analysis",
+        "category": "C# Dependencies"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "C# Dependency Monitor",
+      "properties": {
+        "csharpDependencyMonitor.analysisLevel": {
+          "type": "string",
+          "enum": ["namespace", "class", "system"],
+          "enumDescriptions": [
+            "Analyze dependencies at namespace level (fastest)",
+            "Analyze dependencies at class level (detailed)",
+            "Analyze only System classes (Unity ECS focused)"
+          ],
+          "default": "namespace",
+          "description": "Level of dependency analysis to perform"
+        },
+        "csharpDependencyMonitor.enableRealTimeAnalysis": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable real-time analysis when C# files change"
+        },
+        "csharpDependencyMonitor.enableNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notifications for new circular dependencies"
+        },
+        "csharpDependencyMonitor.ignoredNamespaces": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["System", "Unity", "UnityEngine"],
+          "description": "Namespaces to ignore during analysis"
+        },
+        "csharpDependencyMonitor.projectPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["Assets/Scripts", "Scripts", "src", "Source"],
+          "description": "Paths to search for C# files (relative to workspace root)"
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
