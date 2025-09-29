@@ -31,6 +31,7 @@ export class StatusBarManager {
      * Initialize the status bar item with default properties
      */
     private setupStatusBarItem(): void {
+        // Set initial command - will be updated based on analysis state
         this.statusBarItem.command = 'csharpDependencyMonitor.analyzeProject';
         this.statusBarItem.tooltip = 'C# Dependency Monitor - Click to analyze project';
         this.updateStatus(); // Set initial status
@@ -46,35 +47,9 @@ export class StatusBarManager {
             this.updateStatus();
         });
 
-        eventBus.on(Events.ANALYSIS_COMPLETED, (event) => {
+        eventBus.on(Events.ANALYSIS_COMPLETED, () => {
             this.isAnalyzing = false;
-            if (event.data && typeof event.data === 'object') {
-                // Create a mock analysis result from the event data
-                const mockResult: Partial<AnalysisResult> = {
-                    circularDependencies: [],
-                    totalFiles: event.data.totalFiles || 0,
-                    timestamp: new Date()
-                };
-
-                // Add circular dependencies if available
-                if (event.data.totalCircular) {
-                    const mockCircular: CircularDependency[] = [];
-                    for (let i = 0; i < event.data.totalCircular; i++) {
-                        mockCircular.push({
-                            cycle: [],
-                            edges: [],
-                            isNew: i < (event.data.newCircular || 0),
-                            discovered: new Date(),
-                            id: `mock-${i}`
-                        });
-                    }
-                    mockResult.circularDependencies = mockCircular;
-                }
-
-                this.updateStatusFromEventData(mockResult as AnalysisResult);
-            } else {
-                this.updateStatus();
-            }
+            this.updateStatus();
         });
 
         eventBus.on(Events.ANALYSIS_ERROR, () => {
@@ -82,13 +57,10 @@ export class StatusBarManager {
             this.updateStatusError();
         });
 
-        eventBus.on(Events.CIRCULAR_DEPENDENCY_FOUND, () => {
-            this.updateStatus(); // Refresh status when new circular dependencies are found
-        });
-
-        eventBus.on(Events.CIRCULAR_DEPENDENCY_RESOLVED, () => {
-            this.updateStatus(); // Refresh status when circular dependencies are resolved
-        });
+        // NOTE: Removed CIRCULAR_DEPENDENCY_FOUND and CIRCULAR_DEPENDENCY_RESOLVED event listeners
+        // These were causing conflicts with the new optimized system that directly updates
+        // the status bar with analysis results. The status bar is now updated directly
+        // in extension.ts with actual analysis data instead of relying on events.
 
         // Listen for configuration changes
         this.configManager.onConfigChange(() => {
@@ -131,25 +103,22 @@ export class StatusBarManager {
             this.statusBarItem.text = '$(check) C# Deps: Healthy';
             this.statusBarItem.tooltip = this.buildHealthyTooltip(result, config);
             this.statusBarItem.backgroundColor = undefined;
+            this.statusBarItem.command = undefined; // No action needed when healthy
         } else if (newCount === 0) {
             // Known issues - no new problems
             this.statusBarItem.text = `$(warning) C# Deps: ${circularCount} known`;
             this.statusBarItem.tooltip = this.buildKnownIssuestooltip(result, config);
             this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+            this.statusBarItem.command = 'csharpDependencyMonitor.showVisualization'; // Show visualization with circular deps
         } else {
             // New issues detected
             this.statusBarItem.text = `$(error) C# Deps: ${newCount} new, ${circularCount} total`;
             this.statusBarItem.tooltip = this.buildNewIssuestooltip(result, config);
             this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+            this.statusBarItem.command = 'csharpDependencyMonitor.showVisualization'; // Show visualization with circular deps
         }
     }
 
-    /**
-     * Update status from event data (for events that don't have full AnalysisResult)
-     */
-    private updateStatusFromEventData(eventData: AnalysisResult): void {
-        this.updateStatus(eventData);
-    }
 
     /**
      * Update status bar to show error state
@@ -176,8 +145,10 @@ export class StatusBarManager {
             '🎯 No circular dependencies detected',
             '',
             `⏱️ Last analysis: ${this.formatTimestamp(result.timestamp)}`,
+            `🔄 Analysis level: ${result.analysisLevel}`,
+            `📁 Affected files: ${result.affectedFiles?.length || 0}`,
             '',
-            'Click to run manual analysis'
+            '✨ All dependencies are healthy!'
         ];
         return lines.join('\n');
     }
@@ -214,8 +185,10 @@ export class StatusBarManager {
 
         lines.push('');
         lines.push(`⏱️ Last analysis: ${this.formatTimestamp(result.timestamp)}`);
+        lines.push(`🔄 Analysis level: ${result.analysisLevel}`);
+        lines.push(`📁 Affected files: ${result.affectedFiles?.length || 0}`);
         lines.push('');
-        lines.push('Click to run manual analysis');
+        lines.push('Click to view visualization graph');
 
         return lines.join('\n');
     }
@@ -256,8 +229,10 @@ export class StatusBarManager {
 
         lines.push('');
         lines.push(`⏱️ Last analysis: ${this.formatTimestamp(result.timestamp)}`);
+        lines.push(`🔄 Analysis level: ${result.analysisLevel}`);
+        lines.push(`📁 Affected files: ${result.affectedFiles?.length || 0}`);
         lines.push('');
-        lines.push('Click to run manual analysis');
+        lines.push('Click to view visualization graph');
 
         return lines.join('\n');
     }
