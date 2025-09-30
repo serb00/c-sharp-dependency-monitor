@@ -80,6 +80,48 @@ export class Utils {
     }
 
     /**
+     * Extract qualified type references that create namespace dependencies
+     * (e.g., Combat.FindTarget in field declarations)
+     */
+    static extractQualifiedTypeReferences(content: string): Array<{ namespace: string; lineNumber: number; context: string }> {
+        const lines = content.split('\n');
+        const references: Array<{ namespace: string; lineNumber: number; context: string }> = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            // Skip comments and using statements (already handled)
+            if (!line || line.startsWith('//') || line.startsWith('using ')) {
+                continue;
+            }
+
+            // Pattern for qualified type references: Namespace.Type
+            // Matches field declarations, method parameters, return types, etc.
+            const qualifiedTypePattern = /\b([A-Z][a-zA-Z0-9]*(?:\.[A-Z][a-zA-Z0-9]*)+)\b/g;
+            let match;
+
+            while ((match = qualifiedTypePattern.exec(line)) !== null) {
+                const qualifiedType = match[1];
+                const parts = qualifiedType.split('.');
+                
+                // Extract namespace (all parts except the last one, which is the type name)
+                if (parts.length >= 2) {
+                    const namespace = parts.slice(0, -1).join('.');
+                    const typeName = parts[parts.length - 1];
+                    
+                    references.push({
+                        namespace,
+                        lineNumber: i + 1,
+                        context: `qualified type reference to ${typeName}`
+                    });
+                }
+            }
+        }
+
+        return references;
+    }
+
+    /**
      * Check if a namespace should be ignored (System, Unity, etc.)
      */
     static shouldIgnoreNamespace(namespace: string, ignoredNamespaces: string[]): boolean {

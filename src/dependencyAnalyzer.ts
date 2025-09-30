@@ -81,7 +81,7 @@ export class DependencyAnalyzer {
         const config = this.configManager.getConfig();
         const allFiles = await this.getAllCSharpFiles(workspaceRoot);
 
-        // First pass: collect all using statements with file locations
+        // First pass: collect all using statements and qualified type references with file locations
         const namespaceUsings = new Map<string, Map<string, string[]>>();
 
         for (const filePath of allFiles) {
@@ -93,13 +93,14 @@ export class DependencyAnalyzer {
                     continue;
                 }
 
+                // Process using statements
                 const usingStatements = Utils.extractUsingStatements(content);
                 
                 for (const usingStmt of usingStatements) {
                     const targetNamespace = usingStmt.namespace;
                     
                     // Skip ignored namespaces and self-references
-                    if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) || 
+                    if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) ||
                         targetNamespace === namespace) {
                         continue;
                     }
@@ -114,7 +115,32 @@ export class DependencyAnalyzer {
                     }
 
                     const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
-                    nsMap.get(targetNamespace)!.push(`${relativePath}:${usingStmt.lineNumber}`);
+                    nsMap.get(targetNamespace)!.push(`${relativePath}:${usingStmt.lineNumber} (using statement)`);
+                }
+
+                // CRITICAL FIX: Also process qualified type references (e.g., Combat.FindTarget)
+                const qualifiedTypeRefs = Utils.extractQualifiedTypeReferences(content);
+                
+                for (const typeRef of qualifiedTypeRefs) {
+                    const targetNamespace = typeRef.namespace;
+                    
+                    // Skip ignored namespaces and self-references
+                    if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) ||
+                        targetNamespace === namespace) {
+                        continue;
+                    }
+
+                    if (!namespaceUsings.has(namespace)) {
+                        namespaceUsings.set(namespace, new Map());
+                    }
+
+                    const nsMap = namespaceUsings.get(namespace)!;
+                    if (!nsMap.has(targetNamespace)) {
+                        nsMap.set(targetNamespace, []);
+                    }
+
+                    const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
+                    nsMap.get(targetNamespace)!.push(`${relativePath}:${typeRef.lineNumber} (${typeRef.context})`);
                 }
             } catch (error) {
                 console.warn(`Error analyzing file ${filePath}:`, error);
@@ -755,7 +781,7 @@ export class DependencyAnalyzer {
         
         // Incremental namespace analysis
         
-        // First pass: collect using statements for target namespaces only
+        // First pass: collect using statements and qualified type references for target namespaces only
         const namespaceUsings = new Map<string, Map<string, string[]>>();
 
         for (const filePath of relevantFiles) {
@@ -768,6 +794,7 @@ export class DependencyAnalyzer {
                     continue;
                 }
 
+                // Process using statements
                 const usingStatements = Utils.extractUsingStatements(content);
                 
                 for (const usingStmt of usingStatements) {
@@ -789,7 +816,32 @@ export class DependencyAnalyzer {
                     }
 
                     const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
-                    nsMap.get(targetNamespace)!.push(`${relativePath}:${usingStmt.lineNumber}`);
+                    nsMap.get(targetNamespace)!.push(`${relativePath}:${usingStmt.lineNumber} (using statement)`);
+                }
+
+                // CRITICAL FIX: Also process qualified type references (e.g., Combat.FindTarget)
+                const qualifiedTypeRefs = Utils.extractQualifiedTypeReferences(content);
+                
+                for (const typeRef of qualifiedTypeRefs) {
+                    const targetNamespace = typeRef.namespace;
+                    
+                    // Skip ignored namespaces and self-references
+                    if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) ||
+                        targetNamespace === namespace) {
+                        continue;
+                    }
+
+                    if (!namespaceUsings.has(namespace)) {
+                        namespaceUsings.set(namespace, new Map());
+                    }
+
+                    const nsMap = namespaceUsings.get(namespace)!;
+                    if (!nsMap.has(targetNamespace)) {
+                        nsMap.set(targetNamespace, []);
+                    }
+
+                    const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
+                    nsMap.get(targetNamespace)!.push(`${relativePath}:${typeRef.lineNumber} (${typeRef.context})`);
                 }
             } catch (error) {
                 console.warn(`Error analyzing file ${filePath}:`, error);

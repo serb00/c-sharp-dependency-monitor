@@ -62,10 +62,11 @@ export class IncrementalParser {
 
         // 1. NAMESPACE LEVEL - Parse using statements
         const namespaceDeps = this.parseNamespaceDependencies(
-            namespace, 
-            usingStatements, 
-            filePath, 
-            workspaceRoot
+            namespace,
+            usingStatements,
+            filePath,
+            workspaceRoot,
+            content
         );
         if (namespaceDeps) {
             result.dependencies.namespace.push(namespaceDeps);
@@ -117,17 +118,19 @@ export class IncrementalParser {
         namespace: string,
         usingStatements: UsingStatement[],
         filePath: string,
-        workspaceRoot: string
+        workspaceRoot: string,
+        content: string
     ): DependencyNode | null {
         const config = this.configManager.getConfig();
         const dependencyDetails: DependencyDetail[] = [];
         const dependencies: string[] = [];
 
+        // Process using statements
         for (const usingStmt of usingStatements) {
             const targetNamespace = usingStmt.namespace;
             
             // Skip ignored namespaces and self-references
-            if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) || 
+            if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) ||
                 targetNamespace === namespace) {
                 continue;
             }
@@ -139,6 +142,38 @@ export class IncrementalParser {
                 reasons: [`using statement (${relativePath}:${usingStmt.lineNumber})`],
                 lineNumbers: [usingStmt.lineNumber]
             });
+        }
+
+        // CRITICAL FIX: Also process qualified type references (e.g., Combat.FindTarget)
+        const qualifiedTypeRefs = Utils.extractQualifiedTypeReferences(content);
+        
+        for (const typeRef of qualifiedTypeRefs) {
+            const targetNamespace = typeRef.namespace;
+            
+            // Skip ignored namespaces and self-references
+            if (Utils.shouldIgnoreNamespace(targetNamespace, config.ignoredNamespaces) ||
+                targetNamespace === namespace) {
+                continue;
+            }
+
+            // Avoid duplicates
+            if (!dependencies.includes(targetNamespace)) {
+                dependencies.push(targetNamespace);
+                const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
+                dependencyDetails.push({
+                    target: targetNamespace,
+                    reasons: [`${typeRef.context} (${relativePath}:${typeRef.lineNumber})`],
+                    lineNumbers: [typeRef.lineNumber]
+                });
+            } else {
+                // Add to existing dependency details
+                const existing = dependencyDetails.find(d => d.target === targetNamespace);
+                if (existing) {
+                    const relativePath = Utils.getRelativePath(filePath, workspaceRoot);
+                    existing.reasons.push(`${typeRef.context} (${relativePath}:${typeRef.lineNumber})`);
+                    existing.lineNumbers.push(typeRef.lineNumber);
+                }
+            }
         }
 
         if (dependencies.length === 0) {
