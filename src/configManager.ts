@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { AnalysisConfig, AnalysisLevel } from './types';
+import { AnalysisConfig, AnalysisLevel, VisualizationConfig, ColorScheme } from './types';
 
 export class ConfigManager {
     private static instance: ConfigManager;
@@ -21,7 +21,15 @@ export class ConfigManager {
             ignoredNamespaces: config.get<string[]>('ignoredNamespaces', ['System', 'Unity', 'UnityEngine']),
             projectPaths: config.get<string[]>('projectPaths', ['Assets/Scripts', 'Scripts', 'src', 'Source']),
             enableRealTime: config.get<boolean>('enableRealTimeAnalysis', true),
-            enableNotifications: config.get<boolean>('enableNotifications', true)
+            enableNotifications: config.get<boolean>('enableNotifications', true),
+            visualization: {
+                namespaceGrouping: config.get<boolean>('visualization.namespaceGrouping', false),
+                namespaceColoring: config.get<boolean>('visualization.namespaceColoring', false),
+                typeBasedColoring: config.get<boolean>('visualization.typeBasedColoring', false),
+                enhancedCircularDeps: config.get<boolean>('visualization.enhancedCircularDeps', false),
+                nodeSelection: config.get<boolean>('visualization.nodeSelection', false),
+                colorScheme: config.get<'default' | 'colorblind' | 'high-contrast'>('visualization.colorScheme', 'default')
+            }
         };
     }
 

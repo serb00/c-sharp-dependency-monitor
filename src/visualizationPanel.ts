@@ -211,9 +211,20 @@ export class VisualizationPanel {
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             margin: 0;
-            padding: 20px;
+            padding: 10px;
             background-color: var(--vscode-editor-background);
             color: var(--vscode-editor-foreground);
+            height: 100vh;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         
         .header {
@@ -280,10 +291,11 @@ export class VisualizationPanel {
         
         #graph-container {
             width: 100%;
-            height: 600px;
+            flex: 1;
             border: 1px solid var(--vscode-panel-border);
             border-radius: 4px;
             position: relative;
+            min-height: 400px;
         }
         
         #graph {
@@ -292,10 +304,11 @@ export class VisualizationPanel {
         }
         
         .legend {
-            margin-top: 20px;
-            padding: 15px;
+            margin-bottom: 10px;
+            padding: 10px;
             background: var(--vscode-editor-inactiveSelectionBackground);
             border-radius: 4px;
+            flex-shrink: 0;
         }
         
         .legend-title {
@@ -322,8 +335,8 @@ export class VisualizationPanel {
         }
         
         .circular-deps {
-            margin-top: 20px;
-            padding: 15px;
+            margin-top: 10px;
+            padding: 10px;
             background: var(--vscode-inputValidation-warningBackground);
             border: 1px solid var(--vscode-inputValidation-warningBorder);
             border-radius: 4px;
@@ -356,6 +369,7 @@ export class VisualizationPanel {
     <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
 </head>
 <body>
+    <div class="main-content">
     <div class="header">
         <div class="title">🔍 C# Dependency Graph</div>
         <div class="stats">
@@ -390,22 +404,24 @@ export class VisualizationPanel {
         <button class="btn active" onclick="toggleLayout('hierarchical')">Hierarchical</button>
         <button class="btn" onclick="toggleLayout('force')">Force Directed</button>
         <button class="btn" onclick="toggleLayout('circular')">Circular</button>
+        <span style="margin: 0 10px;">|</span>
         <button class="btn" onclick="highlightCircular()">Highlight Circular</button>
         <button class="btn" onclick="exportDot()">Export DOT</button>
         <button class="btn" onclick="fitGraph()">Fit to Screen</button>
     </div>
     
-    <div id="graph-container">
-        <div id="graph"></div>
-    </div>
-    
     <div class="legend">
         <div class="legend-title">Legend:</div>
-        <div class="legend-items">
+        <div class="legend-items" id="legend-items">
+            ${config.visualization.namespaceColoring ? `
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57);"></div>
+                <span>Namespace-based Colors</span>
+            </div>` : `
             <div class="legend-item">
                 <div class="legend-color" style="background-color: #4CAF50;"></div>
                 <span>Normal Dependencies</span>
-            </div>
+            </div>`}
             <div class="legend-item">
                 <div class="legend-color" style="background-color: #f44336;"></div>
                 <span>Circular Dependencies</span>
@@ -414,28 +430,107 @@ export class VisualizationPanel {
                 <div class="legend-color" style="background-color: #FF9800;"></div>
                 <span>Nodes in Circular Dependencies</span>
             </div>
+            ${config.visualization.namespaceGrouping ? `
+            <div class="legend-item">
+                <div class="legend-color" style="background: linear-gradient(45deg, rgba(255,107,107,0.4), rgba(78,205,196,0.4), rgba(69,183,209,0.4)); border: 2px solid #333;"></div>
+                <span>Namespace Visual Grouping (nodes positioned by namespace)</span>
+            </div>` : ''}
         </div>
     </div>
     
+    <div id="graph-container">
+        <div id="graph"></div>
+    </div>
+    
     ${analysisResult.circularDependencies.length > 0 ? this.generateCircularDependenciesHtml(analysisResult.circularDependencies) : ''}
+    </div>
     
     <script>
+        // Safely acquire VS Code API (only once per session)
+        let vscode;
+        try {
+            vscode = acquireVsCodeApi();
+        } catch (error) {
+            // API already acquired, try to get the existing instance
+            if (window.vscode) {
+                vscode = window.vscode;
+            } else {
+                console.error('Cannot acquire VS Code API:', error);
+                vscode = null;
+            }
+        }
+        
+        // Store it globally for reuse
+        if (vscode) {
+            window.vscode = vscode;
+        }
+        
         // Graph data
-        const nodes = new vis.DataSet(${JSON.stringify(data.nodes.map(node => ({
-            id: node.id,
-            label: node.label,
-            color: {
+        // Configuration for visualization features
+        const vizConfig = ${JSON.stringify(config.visualization)};
+        console.log('🎨 Visualization config:', vizConfig);
+        
+        // Function to generate namespace-based colors
+        function getNamespaceColor(namespace, colorScheme) {
+            const schemes = {
+                default: { saturation: 70, lightness: 50 },
+                colorblind: { saturation: 85, lightness: 45 },
+                'high-contrast': { saturation: 100, lightness: 40 }
+            };
+            
+            const scheme = schemes[colorScheme] || schemes.default;
+            
+            // Generate consistent hue for namespace
+            let hash = 0;
+            for (let i = 0; i < namespace.length; i++) {
+                hash = namespace.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const hue = Math.abs(hash) % 360;
+            
+            const background = \`hsl(\${hue}, \${scheme.saturation}%, \${scheme.lightness}%)\`;
+            const border = \`hsl(\${hue}, \${scheme.saturation}%, \${scheme.lightness - 15}%)\`;
+            
+            return { background, border };
+        }
+        
+        // Process nodes with namespace coloring
+        console.log('🎨 Processing nodes with config:', vizConfig);
+        const rawNodesData = ${JSON.stringify(data.nodes)};
+        const processedNodes = rawNodesData.map(node => {
+            let nodeColor = {
                 background: node.isCircular ? '#FF9800' : '#4CAF50',
                 border: node.isCircular ? '#F57C00' : '#388E3C'
-            },
-            font: {
-                color: '#000000',
-                size: 14,
-                face: 'arial'
-            },
-            title: `<strong>${node.label}</strong><br>Namespace: ${node.namespace || 'Global'}${node.filePath ? '<br>File: ' + node.filePath : ''}${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>`,
-            group: node.group
-        })))});
+            };
+            
+            // Apply namespace-based coloring if enabled and not circular
+            if (vizConfig.namespaceColoring && !node.isCircular && node.namespace) {
+                const namespaceColor = getNamespaceColor(node.namespace, vizConfig.colorScheme);
+                nodeColor = namespaceColor;
+                console.log('🎨 Applied namespace color for', node.namespace, ':', namespaceColor);
+            }
+            
+            // Apply namespace grouping if enabled (visual positioning only)
+            let nodeGroup = node.group;
+            if (vizConfig.namespaceGrouping && node.namespace) {
+                nodeGroup = node.namespace;
+                console.log('🎨 Applied group', node.namespace, 'to node', node.id);
+            }
+            
+            return {
+                id: node.id,
+                label: node.label,
+                color: nodeColor,
+                font: {
+                    color: '#000000',
+                    size: 14,
+                    face: 'arial'
+                },
+                title: \`<strong>\${node.label}</strong><br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>\`,
+                group: nodeGroup
+            };
+        });
+        
+        const nodes = new vis.DataSet(processedNodes);
         
         const edges = new vis.DataSet(${JSON.stringify(data.edges.map(edge => ({
             from: edge.from,
@@ -478,13 +573,271 @@ export class VisualizationPanel {
             },
             interaction: {
                 hover: true,
-                tooltipDelay: 200
+                tooltipDelay: 200,
+                selectConnectedEdges: false,
+                hoverConnectedEdges: false,
+                zoomView: true,
+                dragView: true,
+                dragNodes: true,
+                keyboard: {
+                    enabled: false
+                }
             }
         };
         
+        // Apply namespace-based visual grouping if enabled
+        if (vizConfig.namespaceGrouping) {
+            console.log('🎨 Enabling namespace visual grouping with stronger positioning');
+            
+            // Disable physics completely for better control over positioning
+            options.physics = {
+                enabled: false
+            };
+            
+            // Disable hierarchical layout
+            options.layout = {
+                hierarchical: {
+                    enabled: false
+                },
+                randomSeed: 42
+            };
+            
+            console.log('🎨 Configured namespace visual grouping with manual positioning');
+        }
+        
         // Create network
         const container = document.getElementById('graph');
+        
+        // Apply namespace visual grouping with manual positioning
+        if (vizConfig.namespaceGrouping) {
+            console.log('🎨 Applying namespace visual grouping with manual positioning');
+            
+            // Calculate positions for each namespace group BEFORE creating network
+            const namespaces = new Set();
+            processedNodes.forEach(node => {
+                if (node.group && typeof node.group === 'string') {
+                    namespaces.add(node.group);
+                }
+            });
+            
+            const namespacesArray = Array.from(namespaces);
+            
+            // Calculate MUCH MORE dynamic sizing based on node count per namespace
+            const namespaceSizes = new Map();
+            const namespacePadding = new Map();
+            
+            namespacesArray.forEach(namespace => {
+                const nodeCount = processedNodes.filter(node => node.group === namespace).length;
+                
+                // Much more aggressive scaling for visual distinction
+                let radius, padding;
+                if (nodeCount === 1) {
+                    radius = 60;
+                    padding = 40;
+                } else if (nodeCount <= 3) {
+                    radius = 120;
+                    padding = 60;
+                } else if (nodeCount <= 6) {
+                    radius = 200;
+                    padding = 80;
+                } else if (nodeCount <= 12) {
+                    radius = 300;
+                    padding = 100;
+                } else if (nodeCount <= 20) {
+                    radius = 450;
+                    padding = 130;
+                } else {
+                    // Large namespaces like Combat (23+ nodes)
+                    radius = 600 + (nodeCount - 20) * 15;
+                    padding = 150 + (nodeCount - 20) * 5;
+                }
+                
+                namespaceSizes.set(namespace, radius);
+                namespacePadding.set(namespace, padding);
+                console.log('🎨 Namespace', namespace, 'has', nodeCount, 'nodes → radius:', radius, 'padding:', padding);
+            });
+            
+            // Sort namespaces by size (largest first for better layout)
+            const sortedNamespaces = namespacesArray.sort((a, b) => {
+                const sizeA = namespaceSizes.get(a);
+                const sizeB = namespaceSizes.get(b);
+                return sizeB - sizeA; // Largest first
+            });
+            
+            // MUCH MORE dynamic spacing based on actual group sizes
+            const groupPositions = new Map();
+            const totalGroups = sortedNamespaces.length;
+            
+            if (totalGroups === 1) {
+                // Single group at center
+                groupPositions.set(sortedNamespaces[0], {x: 0, y: 0});
+            } else if (totalGroups === 2) {
+                // Two groups with minimal spacing based on their actual sizes
+                const size1 = namespaceSizes.get(sortedNamespaces[0]);
+                const size2 = namespaceSizes.get(sortedNamespaces[1]);
+                const spacing = size1 + size2 + 80; // Minimal gap between areas
+                groupPositions.set(sortedNamespaces[0], {x: -spacing/2, y: 0});
+                groupPositions.set(sortedNamespaces[1], {x: spacing/2, y: 0});
+            } else {
+                // Multiple groups with MUCH more generous spacing
+                const cols = Math.min(2, Math.ceil(Math.sqrt(totalGroups))); // Limit to 2 columns for better spacing
+                let currentY = 0;
+                
+                for (let row = 0; row < Math.ceil(totalGroups / cols); row++) {
+                    const rowNamespaces = sortedNamespaces.slice(row * cols, (row + 1) * cols);
+                    const maxRowRadius = Math.max(...rowNamespaces.map(ns => namespaceSizes.get(ns)));
+                    
+                    let currentX = 0;
+                    if (rowNamespaces.length === 1) {
+                        // Center single item in row
+                        currentX = 0;
+                    } else {
+                        // Calculate starting position for multiple items
+                        const totalRowWidth = rowNamespaces.reduce((sum, ns, idx) => {
+                            const size = namespaceSizes.get(ns);
+                            const gap = idx > 0 ? size + namespaceSizes.get(rowNamespaces[idx-1]) + 300 : 0;
+                            return sum + gap;
+                        }, 0);
+                        currentX = -totalRowWidth / 2;
+                    }
+                    
+                    rowNamespaces.forEach((namespace, colIndex) => {
+                        const radius = namespaceSizes.get(namespace);
+                        groupPositions.set(namespace, {x: currentX, y: currentY});
+                        
+                        if (colIndex < rowNamespaces.length - 1) {
+                            const nextRadius = namespaceSizes.get(rowNamespaces[colIndex + 1]);
+                            currentX += radius + nextRadius + 100; // Smaller gap between areas
+                        }
+                        
+                        console.log('🎨 Group', namespace, 'positioned at', {x: groupPositions.get(namespace).x, y: currentY}, 'radius:', radius);
+                    });
+                    
+                    currentY += maxRowRadius * 2 + 120; // Smaller vertical spacing
+                }
+            }
+            
+            // Apply positions to nodes BEFORE creating network with dynamic sizing
+            sortedNamespaces.forEach(namespace => {
+                const nodesInNamespace = processedNodes.filter(node => node.group === namespace);
+                const groupCenter = groupPositions.get(namespace);
+                const groupRadius = namespaceSizes.get(namespace);
+                
+                if (nodesInNamespace.length > 0 && groupCenter) {
+                    nodesInNamespace.forEach((node, index) => {
+                        let nodeX, nodeY;
+                        
+                        if (nodesInNamespace.length === 1) {
+                            // Single node at center
+                            nodeX = groupCenter.x;
+                            nodeY = groupCenter.y;
+                        } else if (nodesInNamespace.length <= 8) {
+                            // Small/medium groups: circle layout with generous spacing
+                            const nodeAngle = (2 * Math.PI * index) / nodesInNamespace.length;
+                            const nodeRadius = Math.min(groupRadius - 80, groupRadius * 0.7);
+                            nodeX = groupCenter.x + nodeRadius * Math.cos(nodeAngle);
+                            nodeY = groupCenter.y + nodeRadius * Math.sin(nodeAngle);
+                        } else {
+                            // Large groups: generous grid layout with proper spacing
+                            const maxNodesPerRow = Math.min(6, Math.ceil(Math.sqrt(nodesInNamespace.length)));
+                            const row = Math.floor(index / maxNodesPerRow);
+                            const col = index % maxNodesPerRow;
+                            
+                            // Much more generous spacing for visibility
+                            const nodeSpacing = Math.max(120, groupRadius / maxNodesPerRow);
+                            const offsetX = (col - (maxNodesPerRow-1)/2) * nodeSpacing;
+                            const totalRows = Math.ceil(nodesInNamespace.length / maxNodesPerRow);
+                            const offsetY = (row - (totalRows-1)/2) * nodeSpacing;
+                            nodeX = groupCenter.x + offsetX;
+                            nodeY = groupCenter.y + offsetY;
+                        }
+                        
+                        // Apply position directly to node data but ALLOW DRAGGING
+                        const nodeUpdate = processedNodes.find(n => n.id === node.id);
+                        if (nodeUpdate) {
+                            nodeUpdate.x = nodeX;
+                            nodeUpdate.y = nodeY;
+                            nodeUpdate.fixed = false; // Allow dragging!
+                            nodeUpdate.physics = false; // Keep physics disabled for positioning
+                        }
+                    });
+                    console.log('🎨 Positioned', nodesInNamespace.length, 'nodes for namespace:', namespace, 'in area with radius:', groupRadius);
+                }
+            });
+            
+            // Update nodes dataset with positions
+            nodes.update(processedNodes);
+        }
+        
         const network = new vis.Network(container, {nodes: nodes, edges: edges}, options);
+        
+        // Add namespace border areas after network is created (BEHIND nodes, border-only)
+        if (vizConfig.namespaceGrouping) {
+            network.on('beforeDrawing', function(ctx) {
+                // Get unique namespaces and their positions
+                const namespaces = new Set();
+                processedNodes.forEach(node => {
+                    if (node.group && typeof node.group === 'string') {
+                        namespaces.add(node.group);
+                    }
+                });
+                
+                // Draw border rectangles for each namespace (BEHIND nodes)
+                Array.from(namespaces).forEach(namespace => {
+                    const nodesInNamespace = processedNodes.filter(node => node.group === namespace);
+                    if (nodesInNamespace.length > 1) {
+                        const namespaceColor = getNamespaceColor(namespace, vizConfig.colorScheme);
+                        
+                        // Get node positions from network
+                        const positions = [];
+                        nodesInNamespace.forEach(node => {
+                            const pos = network.getPositions([node.id])[node.id];
+                            if (pos) {
+                                positions.push(pos);
+                            }
+                        });
+                        
+                        if (positions.length > 1) {
+                            // Calculate bounding box with generous padding
+                            const padding = 80;
+                            const minX = Math.min(...positions.map(p => p.x)) - padding;
+                            const maxX = Math.max(...positions.map(p => p.x)) + padding;
+                            const minY = Math.min(...positions.map(p => p.y)) - padding;
+                            const maxY = Math.max(...positions.map(p => p.y)) + padding;
+                            
+                            // Draw ONLY border rectangle (no fill)
+                            ctx.save();
+                            ctx.strokeStyle = namespaceColor.border; // Use exact namespace border color
+                            ctx.lineWidth = 4;
+                            ctx.setLineDash([10, 5]); // Dashed border for clear distinction
+                            ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+                            
+                            // Draw namespace label with background for readability
+                            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'; // Semi-transparent white background
+                            ctx.strokeStyle = namespaceColor.border;
+                            ctx.lineWidth = 1;
+                            ctx.setLineDash([]); // Reset line dash
+                            ctx.font = '14px Arial bold';
+                            ctx.textAlign = 'center';
+                            
+                            const labelX = minX + (maxX - minX) / 2;
+                            const labelY = minY - 15;
+                            const textWidth = ctx.measureText(namespace).width;
+                            
+                            // Draw label background
+                            ctx.fillRect(labelX - textWidth/2 - 8, labelY - 12, textWidth + 16, 20);
+                            ctx.strokeRect(labelX - textWidth/2 - 8, labelY - 12, textWidth + 16, 20);
+                            
+                            // Draw label text
+                            ctx.fillStyle = namespaceColor.border;
+                            ctx.fillText(namespace, labelX, labelY);
+                            
+                            ctx.restore();
+                        }
+                    }
+                });
+            });
+        }
         
         // Layout functions
         let currentLayout = 'hierarchical';
@@ -576,11 +929,12 @@ export class VisualizationPanel {
         
         function exportDot() {
             const dotContent = generateDotFormat();
-            const vscode = acquireVsCodeApi();
-            vscode.postMessage({
-                command: 'exportDot',
-                content: dotContent
-            });
+            if (vscode) {
+                vscode.postMessage({
+                    command: 'exportDot',
+                    content: dotContent
+                });
+            }
         }
         
         function fitGraph() {
@@ -623,11 +977,25 @@ export class VisualizationPanel {
         network.on('click', function(properties) {
             if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
-                const vscode = acquireVsCodeApi();
-                vscode.postMessage({
-                    command: 'nodeClicked',
-                    nodeId: nodeId
-                });
+                
+                if (vscode) {
+                    vscode.postMessage({
+                        command: 'nodeClicked',
+                        nodeId: nodeId
+                    });
+                }
+                
+                // Prevent event from interfering with other UI controls
+                if (properties.event && properties.event.srcEvent) {
+                    const target = properties.event.srcEvent.target;
+                    const isSelect = target.closest('select');
+                    const isButton = target.closest('button');
+                    const isControls = target.closest('.controls');
+                    
+                    if (!isSelect && !isButton && !isControls) {
+                        properties.event.srcEvent.stopPropagation();
+                    }
+                }
             }
         });
         
@@ -635,33 +1003,62 @@ export class VisualizationPanel {
         network.on('doubleClick', function(properties) {
             if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
-                const vscode = acquireVsCodeApi();
-                vscode.postMessage({
-                    command: 'openFile',
-                    nodeId: nodeId
-                });
+                if (vscode) {
+                    vscode.postMessage({
+                        command: 'openFile',
+                        nodeId: nodeId
+                    });
+                }
             }
         });
         
         // Analysis level functions
         function changeAnalysisLevel(newLevel) {
-            const vscode = acquireVsCodeApi();
-            vscode.postMessage({
-                command: 'changeAnalysisLevel',
-                level: newLevel
-            });
+            if (vscode) {
+                vscode.postMessage({
+                    command: 'changeAnalysisLevel',
+                    level: newLevel
+                });
+            }
         }
         
         
-
-        // Handle messages from VSCode extension
-        // Removed dynamic message handler - using full refresh approach
-
-        // Removed problematic updateVisualizationData function - using full refresh approach
+        // Generate dynamic legend for namespace colors
+        function updateLegend() {
+            if (vizConfig.namespaceColoring) {
+                const legendItems = document.getElementById('legend-items');
+                const namespaces = new Set();
+                
+                // Collect all namespaces
+                rawNodesData.forEach(node => {
+                    if (node.namespace && !node.isCircular) {
+                        namespaces.add(node.namespace);
+                    }
+                });
+                
+                // Clear existing namespace legend items
+                const existingNamespaces = legendItems.querySelectorAll('.namespace-legend');
+                existingNamespaces.forEach(item => item.remove());
+                
+                // Add namespace legend items
+                const namespacesArray = Array.from(namespaces).sort();
+                namespacesArray.forEach(namespace => {
+                    const color = getNamespaceColor(namespace, vizConfig.colorScheme);
+                    const legendItem = document.createElement('div');
+                    legendItem.className = 'legend-item namespace-legend';
+                    legendItem.innerHTML = \`
+                        <div class="legend-color" style="background-color: \${color.background}; border: 1px solid \${color.border};"></div>
+                        <span>\${namespace}</span>
+                    \`;
+                    legendItems.appendChild(legendItem);
+                });
+            }
+        }
         
         // Initialize with hierarchical layout
         window.addEventListener('load', function() {
             network.stabilize();
+            updateLegend();
             setTimeout(() => {
                 network.fit();
             }, 1000);

@@ -92,7 +92,19 @@ export interface AnalysisConfig {
     projectPaths: string[];
     enableRealTime: boolean;
     enableNotifications: boolean;
+    visualization: VisualizationConfig;
 }
+
+export interface VisualizationConfig {
+    namespaceGrouping: boolean;
+    namespaceColoring: boolean;
+    typeBasedColoring: boolean;
+    enhancedCircularDeps: boolean;
+    nodeSelection: boolean;
+    colorScheme: ColorScheme;
+}
+
+export type ColorScheme = 'default' | 'colorblind' | 'high-contrast';
 
 export interface AnalysisStats {
     totalFiles: number;

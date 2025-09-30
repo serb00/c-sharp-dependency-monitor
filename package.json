@@ -88,6 +88,42 @@
           },
           "default": ["Assets/Scripts", "Scripts", "src", "Source"],
           "description": "Paths to search for C# files (relative to workspace root)"
+        },
+        "csharpDependencyMonitor.visualization.namespaceGrouping": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable visual clustering of nodes based on their namespace"
+        },
+        "csharpDependencyMonitor.visualization.namespaceColoring": {
+          "type": "boolean",
+          "default": false,
+          "description": "Color nodes based on their namespace for better visual distinction"
+        },
+        "csharpDependencyMonitor.visualization.typeBasedColoring": {
+          "type": "boolean",
+          "default": false,
+          "description": "Color nodes based on their type (class, interface, struct, etc.)"
+        },
+        "csharpDependencyMonitor.visualization.enhancedCircularDeps": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enhanced circular dependency visualization: immediate dependencies (red) vs chain dependencies (yellow)"
+        },
+        "csharpDependencyMonitor.visualization.nodeSelection": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable node selection with connected node highlighting"
+        },
+        "csharpDependencyMonitor.visualization.colorScheme": {
+          "type": "string",
+          "enum": ["default", "colorblind", "high-contrast"],
+          "default": "default",
+          "description": "Color scheme for the visualization",
+          "enumDescriptions": [
+            "Default color scheme with vibrant colors",
+            "Colorblind-friendly color palette",
+            "High contrast colors for better accessibility"
+          ]
         }
       }
     }
