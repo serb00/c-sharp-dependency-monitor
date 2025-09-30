@@ -504,67 +504,190 @@ export class VisualizationPanel {
         const vizConfig = ${JSON.stringify(config.visualization)};
         console.log('🎨 Visualization config:', vizConfig);
         
+        // Function to convert HSL to Hex
+        function hslToHex(h, s, l) {
+            l /= 100;
+            const a = s * Math.min(l, 1 - l) / 100;
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return \`#\${f(0)}\${f(8)}\${f(4)}\`;
+        }
+        
+        // Function to calculate luminance of a color for text contrast
+        function getLuminance(hexColor) {
+            // Convert hex to RGB
+            const hex = hexColor.replace('#', '');
+            const r = parseInt(hex.substr(0, 2), 16) / 255;
+            const g = parseInt(hex.substr(2, 2), 16) / 255;
+            const b = parseInt(hex.substr(4, 2), 16) / 255;
+            
+            // Apply gamma correction
+            const rLinear = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+            const gLinear = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+            const bLinear = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+            
+            // Calculate luminance
+            return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear;
+        }
+        
+        // Function to get optimal text color based on background
+        function getTextColor(backgroundColor, colorScheme) {
+            const luminance = getLuminance(backgroundColor);
+            
+            // For high-contrast mode, use maximum contrast
+            if (colorScheme === 'high-contrast') {
+                return luminance > 0.5 ? '#000000' : '#FFFFFF'; // Pure black or white
+            }
+            
+            // For colorblind mode, use colorblind-safe text colors
+            if (colorScheme === 'colorblind') {
+                // Use slightly softer contrast for better reading
+                return luminance > 0.4 ? '#1A1A1A' : '#F0F0F0'; // Dark grey or light grey
+            }
+            
+            // For default, use standard contrast calculation
+            return luminance > 0.35 ? '#333333' : '#FFFFFF'; // Dark grey or white
+        }
+
         // Function to generate namespace-based colors
         function getNamespaceColor(namespace, colorScheme) {
-            const schemes = {
-                default: { saturation: 70, lightness: 50 },
-                colorblind: { saturation: 85, lightness: 45 },
-                'high-contrast': { saturation: 100, lightness: 40 }
-            };
-            
-            const scheme = schemes[colorScheme] || schemes.default;
-            
-            // Generate consistent hue for namespace
-            let hash = 0;
-            for (let i = 0; i < namespace.length; i++) {
-                hash = namespace.charCodeAt(i) + ((hash << 5) - hash);
+            // Enhanced color schemes for better accessibility and visibility
+            if (colorScheme === 'colorblind') {
+                // Use improved Paul Tol's colorblind-safe palette with optimal text colors
+                const colorblindPalette = [
+                    { background: '#EE7733', border: '#B85500', text: '#1A1A1A' }, // Orange - dark text
+                    { background: '#0077BB', border: '#004C80', text: '#F0F0F0' }, // Blue - light text
+                    { background: '#33BBEE', border: '#1199CC', text: '#1A1A1A' }, // Light Blue - dark text
+                    { background: '#EE3377', border: '#BB1155', text: '#1A1A1A' }, // Pink - dark text
+                    { background: '#CC3311', border: '#992200', text: '#F0F0F0' }, // Red - light text
+                    { background: '#009988', border: '#006655', text: '#F0F0F0' }, // Teal - light text
+                    { background: '#BBBBBB', border: '#888888', text: '#1A1A1A' }, // Light Grey - dark text
+                    { background: '#332288', border: '#221166', text: '#F0F0F0' }, // Dark Purple - light text
+                    { background: '#AA4499', border: '#882277', text: '#F0F0F0' }, // Mauve - light text
+                    { background: '#88CCEE', border: '#55AACC', text: '#1A1A1A' }, // Pale Blue - dark text
+                    { background: '#FFAABB', border: '#CC7788', text: '#1A1A1A' }, // Pale Pink - dark text
+                    { background: '#99DDFF', border: '#66AACC', text: '#1A1A1A' }  // Sky Blue - dark text
+                ];
+                
+                // Better hash distribution to prevent collisions
+                let hash = 0;
+                for (let i = 0; i < namespace.length; i++) {
+                    const char = namespace.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                
+                // Use a better distribution method
+                const index = Math.abs(hash) % colorblindPalette.length;
+                console.log('🎨 Colorblind - Namespace:', namespace, 'Hash:', hash, 'Index:', index, 'Color:', colorblindPalette[index]);
+                return colorblindPalette[index];
+            } else if (colorScheme === 'high-contrast') {
+                // High contrast colors with MAXIMUM differentiation and optimal text contrast
+                const highContrastPalette = [
+                    { background: '#0000FF', border: '#000099', text: '#FFFFFF' }, // Pure Blue - white text
+                    { background: '#FF0000', border: '#CC0000', text: '#FFFFFF' }, // Pure Red - white text
+                    { background: '#00CC00', border: '#009900', text: '#000000' }, // Pure Green - black text
+                    { background: '#FFAA00', border: '#CC8800', text: '#000000' }, // Pure Orange - black text
+                    { background: '#AA00AA', border: '#880088', text: '#FFFFFF' }, // Pure Magenta - white text
+                    { background: '#00AAAA', border: '#008888', text: '#000000' }, // Pure Cyan - black text
+                    { background: '#CCCC00', border: '#999900', text: '#000000' }, // Pure Yellow - black text
+                    { background: '#6600CC', border: '#4400AA', text: '#FFFFFF' }, // Pure Purple - white text
+                    { background: '#FF6600', border: '#CC4400', text: '#000000' }, // Red-Orange - black text
+                    { background: '#0066CC', border: '#004499', text: '#FFFFFF' }, // Dark Blue - white text
+                    { background: '#CC0066', border: '#990044', text: '#FFFFFF' }, // Deep Pink - white text
+                    { background: '#66CC00', border: '#449900', text: '#000000' }  // Lime Green - black text
+                ];
+                
+                // Same improved hash distribution
+                let hash = 0;
+                for (let i = 0; i < namespace.length; i++) {
+                    const char = namespace.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                
+                const index = Math.abs(hash) % highContrastPalette.length;
+                console.log('🎨 High-contrast - Namespace:', namespace, 'Hash:', hash, 'Index:', index, 'Color:', highContrastPalette[index]);
+                return highContrastPalette[index];
+            } else {
+                // Default scheme using HSL for smooth color variations
+                const scheme = { saturation: 70, lightness: 50 };
+                
+                // Generate consistent hue for namespace with better distribution
+                let hash = 0;
+                for (let i = 0; i < namespace.length; i++) {
+                    const char = namespace.charCodeAt(i);
+                    hash = ((hash << 5) - hash) + char;
+                    hash = hash & hash; // Convert to 32-bit integer
+                }
+                
+                // Use golden ratio for better distribution
+                const goldenRatio = 0.618033988749;
+                const hue = Math.floor((Math.abs(hash) * goldenRatio) % 360);
+                
+                const background = \`hsl(\${hue}, \${scheme.saturation}%, \${scheme.lightness}%)\`;
+                const border = \`hsl(\${hue}, \${scheme.saturation}%, \${scheme.lightness - 15}%)\`;
+                // Convert HSL to hex for text color calculation
+                const hexBackground = hslToHex(hue, scheme.saturation, scheme.lightness);
+                const text = getTextColor(hexBackground, colorScheme);
+                
+                console.log('🎨 Default - Namespace:', namespace, 'Hash:', hash, 'Hue:', hue, 'Color:', { background, border, text });
+                return { background, border, text };
             }
-            const hue = Math.abs(hash) % 360;
-            
-            const background = \`hsl(\${hue}, \${scheme.saturation}%, \${scheme.lightness}%)\`;
-            const border = \`hsl(\${hue}, \${scheme.saturation}%, \${scheme.lightness - 15}%)\`;
-            
-            return { background, border };
         }
         
         // Function to generate type-based colors
         function getTypeBasedColor(classType, colorScheme) {
             if (!classType) {
-                return { background: '#4CAF50', border: '#388E3C' }; // Default green
+                return {
+                    background: '#4CAF50',
+                    border: '#388E3C',
+                    text: getTextColor('#4CAF50', colorScheme)
+                }; // Default green
             }
             
             const typeColors = {
                 default: {
-                    'class': { background: '#2196F3', border: '#1976D2' },      // Blue
-                    'struct': { background: '#FF9800', border: '#F57C00' },     // Orange
-                    'interface': { background: '#9C27B0', border: '#7B1FA2' }, // Purple
-                    'enum': { background: '#4CAF50', border: '#388E3C' },       // Green
-                    'record': { background: '#00BCD4', border: '#0097A7' },     // Cyan
-                    'record struct': { background: '#FF5722', border: '#D84315' }, // Deep Orange
-                    'delegate': { background: '#795548', border: '#5D4037' }     // Brown
+                    'class': { background: '#2196F3', border: '#1976D2', text: '#FFFFFF' },      // Blue
+                    'struct': { background: '#FF9800', border: '#F57C00', text: '#1A1A1A' },     // Orange
+                    'interface': { background: '#9C27B0', border: '#7B1FA2', text: '#FFFFFF' }, // Purple
+                    'enum': { background: '#4CAF50', border: '#388E3C', text: '#FFFFFF' },       // Green
+                    'record': { background: '#00BCD4', border: '#0097A7', text: '#1A1A1A' },     // Cyan
+                    'record struct': { background: '#FF5722', border: '#D84315', text: '#FFFFFF' }, // Deep Orange
+                    'delegate': { background: '#795548', border: '#5D4037', text: '#FFFFFF' }     // Brown
                 },
                 colorblind: {
-                    'class': { background: '#0077BB', border: '#004C80' },      // Blue
-                    'struct': { background: '#EE7733', border: '#CC5500' },     // Orange
-                    'interface': { background: '#CC3311', border: '#AA1100' }, // Red
-                    'enum': { background: '#009988', border: '#007766' },       // Teal
-                    'record': { background: '#33BBEE', border: '#1199CC' },     // Light Blue
-                    'record struct': { background: '#EE3377', border: '#CC1155' }, // Pink
-                    'delegate': { background: '#BBBBBB', border: '#999999' }     // Gray
+                    'class': { background: '#0077BB', border: '#004C80', text: '#F0F0F0' },      // Blue
+                    'struct': { background: '#EE7733', border: '#CC5500', text: '#1A1A1A' },     // Orange
+                    'interface': { background: '#CC3311', border: '#AA1100', text: '#F0F0F0' }, // Red
+                    'enum': { background: '#009988', border: '#007766', text: '#F0F0F0' },       // Teal
+                    'record': { background: '#33BBEE', border: '#1199CC', text: '#1A1A1A' },     // Light Blue
+                    'record struct': { background: '#EE3377', border: '#CC1155', text: '#1A1A1A' }, // Pink
+                    'delegate': { background: '#BBBBBB', border: '#999999', text: '#1A1A1A' }     // Gray
                 },
                 'high-contrast': {
-                    'class': { background: '#0000FF', border: '#000080' },      // Bright Blue
-                    'struct': { background: '#FF8000', border: '#CC6600' },     // Bright Orange
-                    'interface': { background: '#8000FF', border: '#6600CC' }, // Bright Purple
-                    'enum': { background: '#00FF00', border: '#00CC00' },       // Bright Green
-                    'record': { background: '#00FFFF', border: '#00CCCC' },     // Bright Cyan
-                    'record struct': { background: '#FF4000', border: '#CC3300' }, // Bright Red-Orange
-                    'delegate': { background: '#808080', border: '#606060' }     // Gray
+                    'class': { background: '#0000FF', border: '#000080', text: '#FFFFFF' },      // Bright Blue
+                    'struct': { background: '#FF8000', border: '#CC6600', text: '#000000' },     // Bright Orange
+                    'interface': { background: '#8000FF', border: '#6600CC', text: '#FFFFFF' }, // Bright Purple
+                    'enum': { background: '#00FF00', border: '#00CC00', text: '#000000' },       // Bright Green
+                    'record': { background: '#00FFFF', border: '#00CCCC', text: '#000000' },     // Bright Cyan
+                    'record struct': { background: '#FF4000', border: '#CC3300', text: '#FFFFFF' }, // Bright Red-Orange
+                    'delegate': { background: '#808080', border: '#606060', text: '#FFFFFF' }     // Gray
                 }
             };
             
             const scheme = typeColors[colorScheme] || typeColors.default;
-            return scheme[classType] || { background: '#4CAF50', border: '#388E3C' };
+            const color = scheme[classType] || { background: '#4CAF50', border: '#388E3C' };
+            
+            // Ensure text color is set
+            if (!color.text) {
+                color.text = getTextColor(color.background, colorScheme);
+            }
+            
+            return color;
         }
         
         // Process nodes with type-based and namespace coloring
@@ -585,35 +708,56 @@ export class VisualizationPanel {
                 if (vizConfig.enhancedCircularDeps) {
                     if (node.isDirectCircular) {
                         // Direct circular dependencies: Red
-                        nodeColor = { background: '#f44336', border: '#d32f2f' };
+                        nodeColor = {
+                            background: '#f44336',
+                            border: '#d32f2f',
+                            text: getTextColor('#f44336', vizConfig.colorScheme)
+                        };
                         console.log('🎨 Applied direct circular color (red) for', node.id);
                     } else if (node.isChainCircular) {
                         // Chain circular dependencies: Yellow
-                        nodeColor = { background: '#ffeb3b', border: '#fbc02d' };
+                        nodeColor = {
+                            background: '#ffeb3b',
+                            border: '#fbc02d',
+                            text: getTextColor('#ffeb3b', vizConfig.colorScheme)
+                        };
                         console.log('🎨 Applied chain circular color (yellow) for', node.id);
                     } else {
                         // Fallback for other circular nodes: Orange
-                        nodeColor = { background: '#FF9800', border: '#F57C00' };
+                        nodeColor = {
+                            background: '#FF9800',
+                            border: '#F57C00',
+                            text: getTextColor('#FF9800', vizConfig.colorScheme)
+                        };
                         console.log('🎨 Applied fallback circular color (orange) for', node.id);
                     }
                 } else {
                     // Traditional circular dependency coloring: Orange
-                    nodeColor = { background: '#FF9800', border: '#F57C00' };
+                    nodeColor = {
+                        background: '#FF9800',
+                        border: '#F57C00',
+                        text: getTextColor('#FF9800', vizConfig.colorScheme)
+                    };
                     console.log('🎨 Applied traditional circular color (orange) for', node.id);
                 }
             } else {
                 // Non-circular nodes: apply other coloring rules
-                // Apply type-based coloring if enabled and node has a classType
+                // Priority: Type-based > Namespace-based > Default
                 if (vizConfig.typeBasedColoring && node.classType) {
                     const typeColor = getTypeBasedColor(node.classType, vizConfig.colorScheme);
                     nodeColor = typeColor;
-                    console.log('🎨 Applied type color for', node.id, 'type:', node.classType);
-                }
-                // Apply namespace-based coloring if enabled and type-based is not applicable
-                else if (vizConfig.namespaceColoring && node.namespace) {
+                    console.log('🎨 Applied type color for', node.id, 'type:', node.classType, 'scheme:', vizConfig.colorScheme);
+                } else if (vizConfig.namespaceColoring && node.namespace) {
                     const namespaceColor = getNamespaceColor(node.namespace, vizConfig.colorScheme);
                     nodeColor = namespaceColor;
-                    console.log('🎨 Applied namespace color for', node.namespace);
+                    console.log('🎨 Applied namespace color for', node.namespace, 'scheme:', vizConfig.colorScheme, 'color:', namespaceColor);
+                } else {
+                    // Default color with proper text color
+                    nodeColor = {
+                        background: '#4CAF50',
+                        border: '#388E3C',
+                        text: getTextColor('#4CAF50', vizConfig.colorScheme)
+                    };
                 }
             }
             
@@ -629,7 +773,7 @@ export class VisualizationPanel {
                 label: node.label,
                 color: nodeColor,
                 font: {
-                    color: '#000000',
+                    color: nodeColor.text, // Use calculated text color
                     size: 14,
                     face: 'arial'
                 },
@@ -1227,20 +1371,43 @@ export class VisualizationPanel {
                 if (node.isCircular) {
                     if (vizConfig.enhancedCircularDeps) {
                         if (node.isDirectCircular) {
-                            nodeColor = { background: '#f44336', border: '#d32f2f' };
+                            nodeColor = {
+                                background: '#f44336',
+                                border: '#d32f2f',
+                                text: getTextColor('#f44336', vizConfig.colorScheme)
+                            };
                         } else if (node.isChainCircular) {
-                            nodeColor = { background: '#ffeb3b', border: '#fbc02d' };
+                            nodeColor = {
+                                background: '#ffeb3b',
+                                border: '#fbc02d',
+                                text: getTextColor('#ffeb3b', vizConfig.colorScheme)
+                            };
                         } else {
-                            nodeColor = { background: '#FF9800', border: '#F57C00' };
+                            nodeColor = {
+                                background: '#FF9800',
+                                border: '#F57C00',
+                                text: getTextColor('#FF9800', vizConfig.colorScheme)
+                            };
                         }
                     } else {
-                        nodeColor = { background: '#FF9800', border: '#F57C00' };
+                        nodeColor = {
+                            background: '#FF9800',
+                            border: '#F57C00',
+                            text: getTextColor('#FF9800', vizConfig.colorScheme)
+                        };
                     }
                 } else {
                     if (vizConfig.typeBasedColoring && node.classType) {
                         nodeColor = getTypeBasedColor(node.classType, vizConfig.colorScheme);
                     } else if (vizConfig.namespaceColoring && node.namespace) {
                         nodeColor = getNamespaceColor(node.namespace, vizConfig.colorScheme);
+                    } else {
+                        // Default color with proper text color
+                        nodeColor = {
+                            background: '#4CAF50',
+                            border: '#388E3C',
+                            text: getTextColor('#4CAF50', vizConfig.colorScheme)
+                        };
                     }
                 }
                 
@@ -1249,7 +1416,7 @@ export class VisualizationPanel {
                     label: node.label,
                     color: nodeColor,
                     font: {
-                        color: '#000000',
+                        color: nodeColor.text, // Use calculated text color
                         size: 14,
                         face: 'arial'
                     },
