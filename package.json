@@ -111,7 +111,7 @@
         },
         "csharpDependencyMonitor.visualization.nodeSelection": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Enable node selection with connected node highlighting"
         },
         "csharpDependencyMonitor.visualization.colorScheme": {

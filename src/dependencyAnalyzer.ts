@@ -142,7 +142,8 @@ export class DependencyAnalyzer {
                     fullName: namespace,
                     filePath: '', // Namespace doesn't have a single file
                     dependencies: deps,
-                    dependencyDetails
+                    dependencyDetails,
+                    classType: undefined // Namespaces don't have a specific type
                 });
             }
         }
@@ -260,7 +261,8 @@ export class DependencyAnalyzer {
                             fullName: fullClassName,
                             filePath,
                             dependencies: [...new Set(classDeps)],
-                            dependencyDetails
+                            dependencyDetails,
+                            classType: classInfo.classType
                         });
 
                         
@@ -373,13 +375,19 @@ export class DependencyAnalyzer {
                         });
                     }
 
+                    // Get the actual system info to determine if it's a class or struct
+                    const currentSystems = this.extractSystemClasses(content);
+                    const systemInfo = currentSystems.find(s => s.name === systemName);
+                    const actualClassType = systemInfo?.classType || 'class';
+                    
                     dependencies.set(fullSystemName, {
                         name: systemName,
                         namespace,
                         fullName: fullSystemName,
                         filePath,
                         dependencies: [...new Set(systemDeps)],
-                        dependencyDetails
+                        dependencyDetails,
+                        classType: actualClassType
                     });
                 }
             } catch (error) {
@@ -400,7 +408,8 @@ export class DependencyAnalyzer {
                     fullName: systemFullName,
                     filePath: '', // Will be filled by systemClasses lookup
                     dependencies: [],
-                    dependencyDetails: []
+                    dependencyDetails: [],
+                    classType: 'class' // Default for systems
                 });
             }
         }
@@ -808,7 +817,8 @@ export class DependencyAnalyzer {
                     fullName: namespace,
                     filePath: '', // Namespace doesn't have a single file
                     dependencies: deps,
-                    dependencyDetails
+                    dependencyDetails,
+                    classType: undefined // Namespaces don't have a specific type
                 });
             }
         }
@@ -919,7 +929,8 @@ export class DependencyAnalyzer {
                             fullName: fullClassName,
                             filePath,
                             dependencies: [...new Set(classDeps)],
-                            dependencyDetails
+                            dependencyDetails,
+                            classType: classInfo.classType
                         });
                     }
                 }
@@ -1015,13 +1026,19 @@ export class DependencyAnalyzer {
                         });
                     }
 
+                    // Get the actual system info to determine if it's a class or struct
+                    const currentSystemsInFile = this.extractSystemClasses(content);
+                    const systemInfo = currentSystemsInFile.find(s => s.name === systemName);
+                    const actualClassType = systemInfo?.classType || 'class';
+                    
                     dependencies.set(fullSystemName, {
                         name: systemName,
                         namespace,
                         fullName: fullSystemName,
                         filePath,
                         dependencies: [...new Set(systemDeps)],
-                        dependencyDetails
+                        dependencyDetails,
+                        classType: actualClassType
                     });
                 }
             } catch (error) {

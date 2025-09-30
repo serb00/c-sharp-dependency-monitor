@@ -10,6 +10,7 @@ export interface DependencyNode {
     filePath: string;
     dependencies: string[];
     dependencyDetails: DependencyDetail[];
+    classType?: 'class' | 'struct' | 'interface' | 'enum' | 'record' | 'record struct' | 'delegate';
 }
 
 export interface DependencyDetail {
@@ -134,6 +135,7 @@ export interface GraphNode {
     isCircular: boolean;
     filePath?: string;
     group?: number;
+    classType?: 'class' | 'struct' | 'interface' | 'enum' | 'record' | 'record struct' | 'delegate';
 }
 
 export interface GraphEdge {

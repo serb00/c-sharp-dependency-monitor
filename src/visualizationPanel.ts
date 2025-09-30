@@ -80,8 +80,11 @@ export class VisualizationPanel {
             label: string;
             namespace?: string;
             isCircular: boolean;
+            isDirectCircular?: boolean;
+            isChainCircular?: boolean;
             filePath?: string;
             group: number;
+            classType?: 'class' | 'struct' | 'interface' | 'enum' | 'record' | 'record struct' | 'delegate';
         }> = [];
         
         const edges: Array<{
@@ -94,10 +97,27 @@ export class VisualizationPanel {
 
         
 
-        // Get all circular dependency nodes
+        // Enhanced circular dependency coloring: immediate vs chain
         const circularNodes = new Set<string>();
+        const directCircularNodes = new Set<string>(); // A -> B -> A (red)
+        const chainCircularNodes = new Set<string>(); // A -> B -> C -> ... -> A (yellow for C+)
+        
         for (const circular of analysisResult.circularDependencies) {
             circular.cycle.forEach(node => circularNodes.add(node));
+            
+            if (circular.cycle.length === 2) {
+                // Direct circular: A -> B -> A
+                circular.cycle.forEach(node => directCircularNodes.add(node));
+            } else if (circular.cycle.length > 2) {
+                // Chain circular: A -> B -> C -> ... -> A
+                // First two nodes are red (immediate dependency)
+                directCircularNodes.add(circular.cycle[0]);
+                directCircularNodes.add(circular.cycle[1]);
+                // Rest are yellow (chain dependencies)
+                for (let i = 2; i < circular.cycle.length; i++) {
+                    chainCircularNodes.add(circular.cycle[i]);
+                }
+            }
         }
         
 
@@ -112,6 +132,8 @@ export class VisualizationPanel {
             }
             
             const isNodeCircular = circularNodes.has(fullName);
+            const isDirectCircular = directCircularNodes.has(fullName);
+            const isChainCircular = chainCircularNodes.has(fullName);
             const displayLabel = this.getDisplayLabel(dependency, analysisResult.analysisLevel);
             
             nodes.push({
@@ -119,8 +141,11 @@ export class VisualizationPanel {
                 label: displayLabel,
                 namespace: dependency.namespace,
                 isCircular: isNodeCircular,
+                isDirectCircular: isDirectCircular,
+                isChainCircular: isChainCircular,
                 filePath: dependency.filePath,
-                group: namespaceGroups.get(dependency.namespace) || 0
+                group: namespaceGroups.get(dependency.namespace) || 0,
+                classType: dependency.classType
             });
         }
 
@@ -422,6 +447,15 @@ export class VisualizationPanel {
                 <div class="legend-color" style="background-color: #4CAF50;"></div>
                 <span>Normal Dependencies</span>
             </div>`}
+            ${config.visualization.enhancedCircularDeps ? `
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #f44336;"></div>
+                <span>Direct Circular Dependencies (A→B→A)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ffeb3b;"></div>
+                <span>Chain Circular Dependencies (A→B→C→A, C+ nodes)</span>
+            </div>` : `
             <div class="legend-item">
                 <div class="legend-color" style="background-color: #f44336;"></div>
                 <span>Circular Dependencies</span>
@@ -429,7 +463,7 @@ export class VisualizationPanel {
             <div class="legend-item">
                 <div class="legend-color" style="background-color: #FF9800;"></div>
                 <span>Nodes in Circular Dependencies</span>
-            </div>
+            </div>`}
             ${config.visualization.namespaceGrouping ? `
             <div class="legend-item">
                 <div class="legend-color" style="background: linear-gradient(45deg, rgba(255,107,107,0.4), rgba(78,205,196,0.4), rgba(69,183,209,0.4)); border: 2px solid #333;"></div>
@@ -493,20 +527,94 @@ export class VisualizationPanel {
             return { background, border };
         }
         
-        // Process nodes with namespace coloring
-        console.log('🎨 Processing nodes with config:', vizConfig);
-        const rawNodesData = ${JSON.stringify(data.nodes)};
-        const processedNodes = rawNodesData.map(node => {
-            let nodeColor = {
-                background: node.isCircular ? '#FF9800' : '#4CAF50',
-                border: node.isCircular ? '#F57C00' : '#388E3C'
+        // Function to generate type-based colors
+        function getTypeBasedColor(classType, colorScheme) {
+            if (!classType) {
+                return { background: '#4CAF50', border: '#388E3C' }; // Default green
+            }
+            
+            const typeColors = {
+                default: {
+                    'class': { background: '#2196F3', border: '#1976D2' },      // Blue
+                    'struct': { background: '#FF9800', border: '#F57C00' },     // Orange
+                    'interface': { background: '#9C27B0', border: '#7B1FA2' }, // Purple
+                    'enum': { background: '#4CAF50', border: '#388E3C' },       // Green
+                    'record': { background: '#00BCD4', border: '#0097A7' },     // Cyan
+                    'record struct': { background: '#FF5722', border: '#D84315' }, // Deep Orange
+                    'delegate': { background: '#795548', border: '#5D4037' }     // Brown
+                },
+                colorblind: {
+                    'class': { background: '#0077BB', border: '#004C80' },      // Blue
+                    'struct': { background: '#EE7733', border: '#CC5500' },     // Orange
+                    'interface': { background: '#CC3311', border: '#AA1100' }, // Red
+                    'enum': { background: '#009988', border: '#007766' },       // Teal
+                    'record': { background: '#33BBEE', border: '#1199CC' },     // Light Blue
+                    'record struct': { background: '#EE3377', border: '#CC1155' }, // Pink
+                    'delegate': { background: '#BBBBBB', border: '#999999' }     // Gray
+                },
+                'high-contrast': {
+                    'class': { background: '#0000FF', border: '#000080' },      // Bright Blue
+                    'struct': { background: '#FF8000', border: '#CC6600' },     // Bright Orange
+                    'interface': { background: '#8000FF', border: '#6600CC' }, // Bright Purple
+                    'enum': { background: '#00FF00', border: '#00CC00' },       // Bright Green
+                    'record': { background: '#00FFFF', border: '#00CCCC' },     // Bright Cyan
+                    'record struct': { background: '#FF4000', border: '#CC3300' }, // Bright Red-Orange
+                    'delegate': { background: '#808080', border: '#606060' }     // Gray
+                }
             };
             
-            // Apply namespace-based coloring if enabled and not circular
-            if (vizConfig.namespaceColoring && !node.isCircular && node.namespace) {
-                const namespaceColor = getNamespaceColor(node.namespace, vizConfig.colorScheme);
-                nodeColor = namespaceColor;
-                console.log('🎨 Applied namespace color for', node.namespace, ':', namespaceColor);
+            const scheme = typeColors[colorScheme] || typeColors.default;
+            return scheme[classType] || { background: '#4CAF50', border: '#388E3C' };
+        }
+        
+        // Process nodes with type-based and namespace coloring
+        console.log('🎨 Processing nodes with config:', vizConfig);
+        const rawNodesData = ${JSON.stringify(data.nodes)};
+        console.log('🎨 Sample nodes with classType:', rawNodesData.slice(0, 5).map(n => ({id: n.id, classType: n.classType})));
+        
+        const processedNodes = rawNodesData.map(node => {
+            console.log('🎨 Processing node:', node.id, 'classType:', node.classType);
+            let nodeColor = {
+                background: '#4CAF50',
+                border: '#388E3C'
+            };
+            
+            // Priority: Enhanced Circular > Type-based > Namespace-based > Default
+            if (node.isCircular) {
+                // Enhanced circular dependency coloring
+                if (vizConfig.enhancedCircularDeps) {
+                    if (node.isDirectCircular) {
+                        // Direct circular dependencies: Red
+                        nodeColor = { background: '#f44336', border: '#d32f2f' };
+                        console.log('🎨 Applied direct circular color (red) for', node.id);
+                    } else if (node.isChainCircular) {
+                        // Chain circular dependencies: Yellow
+                        nodeColor = { background: '#ffeb3b', border: '#fbc02d' };
+                        console.log('🎨 Applied chain circular color (yellow) for', node.id);
+                    } else {
+                        // Fallback for other circular nodes: Orange
+                        nodeColor = { background: '#FF9800', border: '#F57C00' };
+                        console.log('🎨 Applied fallback circular color (orange) for', node.id);
+                    }
+                } else {
+                    // Traditional circular dependency coloring: Orange
+                    nodeColor = { background: '#FF9800', border: '#F57C00' };
+                    console.log('🎨 Applied traditional circular color (orange) for', node.id);
+                }
+            } else {
+                // Non-circular nodes: apply other coloring rules
+                // Apply type-based coloring if enabled and node has a classType
+                if (vizConfig.typeBasedColoring && node.classType) {
+                    const typeColor = getTypeBasedColor(node.classType, vizConfig.colorScheme);
+                    nodeColor = typeColor;
+                    console.log('🎨 Applied type color for', node.id, 'type:', node.classType);
+                }
+                // Apply namespace-based coloring if enabled and type-based is not applicable
+                else if (vizConfig.namespaceColoring && node.namespace) {
+                    const namespaceColor = getNamespaceColor(node.namespace, vizConfig.colorScheme);
+                    nodeColor = namespaceColor;
+                    console.log('🎨 Applied namespace color for', node.namespace);
+                }
             }
             
             // Apply namespace grouping if enabled (visual positioning only)
@@ -525,7 +633,7 @@ export class VisualizationPanel {
                     size: 14,
                     face: 'arial'
                 },
-                title: \`<strong>\${node.label}</strong><br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>\`,
+                title: \`<strong>\${node.label}</strong><br>Type: \${node.classType || 'Unknown'}<br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>\`,
                 group: nodeGroup
             };
         });
@@ -973,10 +1081,22 @@ export class VisualizationPanel {
             return dot;
         }
         
+        // Track selected nodes for focus mode
+        let selectedNodeId = null;
+        
         // Handle node clicks
         network.on('click', function(properties) {
             if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
+                selectedNodeId = nodeId;
+                
+                // Apply focus mode if enabled
+                if (vizConfig.nodeSelection) {
+                    // Always clear focus mode first to ensure clean state
+                    clearFocusMode();
+                    // Then apply focus mode for the new node
+                    applyFocusMode(nodeId);
+                }
                 
                 if (vscode) {
                     vscode.postMessage({
@@ -996,8 +1116,163 @@ export class VisualizationPanel {
                         properties.event.srcEvent.stopPropagation();
                     }
                 }
+            } else {
+                // Clicked on empty space - clear selection
+                selectedNodeId = null;
+                if (vizConfig.nodeSelection) {
+                    clearFocusMode();
+                }
             }
         });
+        
+        // Function to apply focus mode (grey out non-connected nodes/edges)
+        function applyFocusMode(selectedNodeId) {
+            console.log('🎯 Applying focus mode for node:', selectedNodeId);
+            
+            // Detect VS Code theme (dark vs light)
+            const isDarkTheme = document.body.getAttribute('data-vscode-theme-kind') === 'vscode-dark' ||
+                              document.body.getAttribute('data-vscode-theme-kind') === 'vscode-high-contrast' ||
+                              window.getComputedStyle(document.body).backgroundColor === 'rgb(30, 30, 30)' ||
+                              window.getComputedStyle(document.body).backgroundColor === 'rgb(37, 37, 38)';
+            
+            console.log('🎯 Detected theme - isDark:', isDarkTheme);
+            
+            // Choose appropriate dimmed colors based on theme
+            const dimmedColors = isDarkTheme ? {
+                nodeBackground: '#2D2D2D',   // Dark grey for dark themes
+                nodeBorder: '#1A1A1A',       // Very dark grey
+                nodeText: '#666666',         // Dimmed text
+                edgeColor: '#404040'         // Dark grey edges
+            } : {
+                nodeBackground: '#E0E0E0',   // Light grey for light themes
+                nodeBorder: '#CCCCCC',       // Medium grey
+                nodeText: '#999999',         // Dimmed text
+                edgeColor: '#CCCCCC'         // Light grey edges
+            };
+            
+            // Find directly connected nodes
+            const connectedNodeIds = new Set([selectedNodeId]);
+            const connectedEdgeIds = new Set();
+            
+            // Get all edges to/from the selected node
+            const allEdges = edges.get();
+            allEdges.forEach(edge => {
+                if (edge.from === selectedNodeId) {
+                    connectedNodeIds.add(edge.to);
+                    connectedEdgeIds.add(edge.id);
+                } else if (edge.to === selectedNodeId) {
+                    connectedNodeIds.add(edge.from);
+                    connectedEdgeIds.add(edge.id);
+                }
+            });
+            
+            console.log('🎯 Connected nodes:', Array.from(connectedNodeIds));
+            console.log('🎯 Connected edges:', Array.from(connectedEdgeIds));
+            
+            // Update nodes: keep original colors for connected, theme-appropriate grey for others
+            const allNodes = nodes.get();
+            const updatedNodes = allNodes.map(node => {
+                if (connectedNodeIds.has(node.id)) {
+                    // Keep original color for connected nodes
+                    return node;
+                } else {
+                    // Grey out unconnected nodes with theme-appropriate colors
+                    return {
+                        ...node,
+                        color: {
+                            background: dimmedColors.nodeBackground,
+                            border: dimmedColors.nodeBorder
+                        },
+                        font: {
+                            ...node.font,
+                            color: dimmedColors.nodeText
+                        }
+                    };
+                }
+            });
+            
+            // Update edges: keep original colors for connected, theme-appropriate grey for others
+            const updatedEdges = allEdges.map(edge => {
+                if (connectedEdgeIds.has(edge.id)) {
+                    // Keep original color for connected edges
+                    return edge;
+                } else {
+                    // Grey out unconnected edges with theme-appropriate color
+                    return {
+                        ...edge,
+                        color: {
+                            color: dimmedColors.edgeColor
+                        }
+                    };
+                }
+            });
+            
+            // Apply the updates
+            nodes.update(updatedNodes);
+            edges.update(updatedEdges);
+        }
+        
+        // Function to clear focus mode (restore original colors)
+        function clearFocusMode() {
+            console.log('🎯 Clearing focus mode');
+            
+            // Restore original colors by regenerating nodes and edges
+            const originalNodes = rawNodesData.map(node => {
+                let nodeColor = {
+                    background: '#4CAF50',
+                    border: '#388E3C'
+                };
+                
+                // Apply the same coloring logic as in initial generation
+                if (node.isCircular) {
+                    if (vizConfig.enhancedCircularDeps) {
+                        if (node.isDirectCircular) {
+                            nodeColor = { background: '#f44336', border: '#d32f2f' };
+                        } else if (node.isChainCircular) {
+                            nodeColor = { background: '#ffeb3b', border: '#fbc02d' };
+                        } else {
+                            nodeColor = { background: '#FF9800', border: '#F57C00' };
+                        }
+                    } else {
+                        nodeColor = { background: '#FF9800', border: '#F57C00' };
+                    }
+                } else {
+                    if (vizConfig.typeBasedColoring && node.classType) {
+                        nodeColor = getTypeBasedColor(node.classType, vizConfig.colorScheme);
+                    } else if (vizConfig.namespaceColoring && node.namespace) {
+                        nodeColor = getNamespaceColor(node.namespace, vizConfig.colorScheme);
+                    }
+                }
+                
+                return {
+                    id: node.id,
+                    label: node.label,
+                    color: nodeColor,
+                    font: {
+                        color: '#000000',
+                        size: 14,
+                        face: 'arial'
+                    },
+                    title: \`<strong>\${node.label}</strong><br>Type: \${node.classType || 'Unknown'}<br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>\`,
+                    group: node.group
+                };
+            });
+            
+            // Restore original edge colors
+            const originalEdges = ${JSON.stringify(data.edges.map(edge => ({
+                from: edge.from,
+                to: edge.to,
+                color: {
+                    color: edge.isCircular ? '#f44336' : '#4CAF50'
+                },
+                width: Math.min(edge.weight, 5),
+                arrows: 'to',
+                title: edge.reasons.join('\\n')
+            })))};
+            
+            nodes.update(originalNodes);
+            edges.update(originalEdges);
+        }
         
         // Handle double clicks to open files
         network.on('doubleClick', function(properties) {
