@@ -1,71 +1,68 @@
-# c-sharp-dependency-monitor README
+# C# Dependency Monitor
 
-This is the README for your extension "c-sharp-dependency-monitor". After writing up a brief description, we recommend including the following sections.
+A powerful VS Code extension for real-time C# dependency analysis and circular dependency detection.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **Real-time Analysis**: Monitor C# dependencies as you code with automatic file watching
+- **Circular Dependency Detection**: Identify and visualize circular dependencies in your codebase
+- **Interactive Visualization**: View dependency graphs with interactive node selection and highlighting
+- **Multiple Analysis Levels**: Choose between namespace, class, or system-level analysis
+- **Configurable Settings**: Customize analysis scope, ignored namespaces, and visualization options
+- **Performance Optimized**: Efficient caching and incremental parsing for large codebases
 
-For example if there is an image subfolder under your extension project workspace:
+## Commands
 
-\!\[feature X\]\(images/feature-x.png\)
+This extension provides the following commands:
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- `C# Dependencies: Analyze Project` - Analyze the entire project for dependencies
+- `C# Dependencies: Show Graph` - Display the interactive dependency visualization
+- `C# Dependencies: Clear Cache` - Clear the analysis cache
+- `C# Dependencies: Show Cache Statistics` - View cache performance statistics
+- `C# Dependencies: Toggle Real-time Analysis` - Enable/disable real-time analysis
 
 ## Extension Settings
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
 This extension contributes the following settings:
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- `csharpDependencyMonitor.analysisLevel`: Level of dependency analysis (namespace/class/system)
+- `csharpDependencyMonitor.enableRealTimeAnalysis`: Enable real-time analysis when files change
+- `csharpDependencyMonitor.enableNotifications`: Show notifications for new circular dependencies
+- `csharpDependencyMonitor.ignoredNamespaces`: Namespaces to ignore during analysis
+- `csharpDependencyMonitor.projectPaths`: Paths to search for C# files
+- `csharpDependencyMonitor.visualization.*`: Various visualization customization options
 
-## Known Issues
+## Requirements
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- VS Code 1.104.0 or later
+- C# project with .cs files
+
+## Installation
+
+1. Install the extension from the VS Code marketplace
+2. Open a workspace containing C# files
+3. Use the command palette to run dependency analysis commands
+
+## Usage
+
+1. Open a C# project in VS Code
+2. Press `Ctrl+Shift+P` (or `Cmd+Shift+P` on macOS) to open the command palette
+3. Type "C# Dependencies" to see available commands
+4. Run "C# Dependencies: Analyze Project" to start analysis
+5. Use "C# Dependencies: Show Graph" to view the interactive visualization
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
+### 0.0.1
 
-### 1.0.0
+Initial release of C# Dependency Monitor with:
 
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+- Real-time dependency analysis
+- Circular dependency detection
+- Interactive visualization
+- Configurable analysis settings
+- Performance optimizations
 
 ---
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+**Enjoy analyzing your C# dependencies!**
