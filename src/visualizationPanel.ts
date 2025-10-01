@@ -198,8 +198,6 @@ export class VisualizationPanel {
                 return dependency.namespace;
             case 'class':
                 return dependency.name;
-            case 'system':
-                return dependency.name;
             default:
                 return dependency.name;
         }
@@ -422,7 +420,6 @@ export class VisualizationPanel {
         <select id="analysisLevel" onchange="changeAnalysisLevel(this.value)" style="margin-right: 15px; padding: 4px; background: var(--vscode-dropdown-background); color: var(--vscode-dropdown-foreground); border: 1px solid var(--vscode-dropdown-border);">
             <option value="namespace" ${analysisResult.analysisLevel === 'namespace' ? 'selected' : ''}>Namespace Level</option>
             <option value="class" ${analysisResult.analysisLevel === 'class' ? 'selected' : ''}>Class Level</option>
-            <option value="system" ${analysisResult.analysisLevel === 'system' ? 'selected' : ''}>System Level</option>
         </select>
         
         <span style="margin: 0 10px;">|</span>

@@ -44,7 +44,7 @@ export interface AnalysisResult {
     totalFiles: number;
 }
 
-export type AnalysisLevel = 'namespace' | 'class' | 'system';
+export type AnalysisLevel = 'namespace' | 'class';
 
 export interface CachedAnalysis {
     result: AnalysisResult;
@@ -76,10 +76,6 @@ export interface UsingStatement {
     isCustom: boolean; // Not System/Unity namespace
 }
 
-export interface SystemInfo extends ClassInfo {
-    isSystem: boolean;
-    systemType: 'ISystem' | 'SystemBase' | 'ComponentSystem' | 'JobComponentSystem' | 'NamedSystem';
-}
 
 export interface DependencyPattern {
     pattern: RegExp;

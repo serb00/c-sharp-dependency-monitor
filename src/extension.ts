@@ -29,6 +29,11 @@ let visualizationPanel: VisualizationPanel;
 let cacheManager: CacheManager;
 let incrementalParser: IncrementalParser;
 
+// Make cache manager globally available for optimization
+declare global {
+    var cacheManager: CacheManager | undefined;
+}
+
 export async function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
     configManager = ConfigManager.getInstance();
@@ -54,7 +59,7 @@ async function initializeExtension(context: vscode.ExtensionContext) {
     const config = configManager.getConfig();
     
     // Initialize core components
-    dependencyAnalyzer = new DependencyAnalyzer();
+    dependencyAnalyzer = new DependencyAnalyzer(outputChannel);
     circularDependencyDetector = new CircularDependencyDetector();
     notificationManager = new NotificationManager(outputChannel);
     statusBarManager = new StatusBarManager();
@@ -78,6 +83,9 @@ async function initializeExtension(context: vscode.ExtensionContext) {
     const workspaceRoot = Utils.getWorkspaceRoot();
     if (workspaceRoot) {
         await cacheManager.initialize(workspaceRoot);
+        
+        // Make cache manager globally available for optimization
+        (global as any).cacheManager = cacheManager;
     }
 
     // Start initial analysis if workspace contains C# files
@@ -229,7 +237,7 @@ async function handleFileChange(uri: vscode.Uri, changeType: 'create' | 'change'
             return;
         }
         
-        const analysisResult = await performIncrementalCascadingAnalysis(uri.fsPath, workspaceRoot);
+        const analysisResult = await performUnifiedAnalysisWrapper(uri.fsPath, workspaceRoot);
         
         if (!analysisResult) {
             outputChannel.appendLine('⚠️ Cascading analysis returned no results');
@@ -269,358 +277,95 @@ async function handleFileChange(uri: vscode.Uri, changeType: 'create' | 'change'
 }
 
 /**
- * Performs cascading analysis: namespace → class → system
- * Stops at first level where circular dependencies are found
+ * Unified analysis wrapper that uses the new unified partial update strategy
+ * Replaces the old cascading analysis system
  */
-async function performIncrementalCascadingAnalysis(
+async function performUnifiedAnalysisWrapper(
     changedFilePath: string,
     workspaceRoot: string
 ): Promise<AnalysisResult | null> {
-    if (changedFilePath) {
-        outputChannel.appendLine(`Analyzing: ${Utils.getRelativePath(changedFilePath)}`);
-    } else {
-        outputChannel.appendLine('Performing full project analysis (all levels)');
-    }
-    
     try {
-        // 1. NAMESPACE LEVEL (fastest)
-        outputChannel.appendLine('🔍 Starting namespace level analysis...');
-        const namespaceResult = await analyzeNamespaceLevel(workspaceRoot, changedFilePath);
-        
-        if (namespaceResult && namespaceResult.circularDependencies && namespaceResult.circularDependencies.length > 0) {
-            outputChannel.appendLine(`Found ${namespaceResult.circularDependencies.length} circular dependencies at namespace level`);
-            return namespaceResult;
+        if (changedFilePath) {
+            outputChannel.appendLine(`🔄 SMART UNIFIED ANALYSIS: Processing file change with metadata optimization`);
+            
+            // Use smart unified analysis that leverages metadata-based optimization
+            const smartResult = await Utils.performUnifiedAnalysisWrapper(
+                workspaceRoot,
+                cacheManager,
+                dependencyAnalyzer,
+                outputChannel,
+                false // forceFullAnalysis
+            );
+
+            const analysisResult = smartResult.classResult || smartResult.namespaceResult;
+
+            // Log efficiency metrics if available
+            if (smartResult.efficiency) {
+                const metrics = smartResult.efficiency;
+                outputChannel.appendLine(`📈 ANALYSIS EFFICIENCY: ${(metrics.efficiencyRatio * 100).toFixed(1)}% optimization achieved`);
+            }
+            
+            if (analysisResult) {
+                // Detect circular dependencies using unified detection
+                const circularResults = Utils.detectUnifiedCircularDependencies(
+                    smartResult.namespaceResult,
+                    smartResult.classResult,
+                    changedFilePath,
+                    null, // parseResult not needed for full detection
+                    circularDependencyDetector,
+                    outputChannel
+                );
+                
+                // Use class-level circular dependencies for main result
+                analysisResult.circularDependencies = circularResults.classCircular;
+            }
+            
+            return analysisResult;
+        } else {
+            outputChannel.appendLine('🔄 SMART UNIFIED ANALYSIS: Full project analysis with metadata optimization');
+            
+            // Use smart unified analysis for full project analysis
+            const smartResult = await Utils.performUnifiedAnalysisWrapper(
+                workspaceRoot,
+                cacheManager,
+                dependencyAnalyzer,
+                outputChannel,
+                false // forceFullAnalysis
+            );
+
+            const analysisResult = smartResult.classResult || smartResult.namespaceResult;
+
+            // Log efficiency metrics if available
+            if (smartResult.efficiency) {
+                const metrics = smartResult.efficiency;
+                outputChannel.appendLine(`🎯 STARTUP ANALYSIS EFFICIENCY: ${(metrics.efficiencyRatio * 100).toFixed(1)}% optimization achieved`);
+                outputChannel.appendLine(`   Recommendation: ${metrics.recommendation}`);
+            }
+            
+            if (analysisResult) {
+                // Detect circular dependencies using unified detection
+                const circularResults = Utils.detectUnifiedCircularDependencies(
+                    smartResult.namespaceResult,
+                    smartResult.classResult,
+                    null, // No specific file for full analysis
+                    null, // No parse result for full analysis
+                    circularDependencyDetector,
+                    outputChannel
+                );
+                
+                // Use class-level circular dependencies for main result
+                analysisResult.circularDependencies = circularResults.classCircular;
+            }
+            
+            return analysisResult;
         }
-        
-        // 2. CLASS LEVEL (more detailed)
-        outputChannel.appendLine('🔍 Starting class level analysis...');
-        const classResult = await analyzeClassLevel(workspaceRoot, changedFilePath);
-        
-        if (classResult && classResult.circularDependencies && classResult.circularDependencies.length > 0) {
-            outputChannel.appendLine(`Found ${classResult.circularDependencies.length} circular dependencies at class level`);
-            return classResult;
-        }
-        
-        // 3. SYSTEM LEVEL (most specific)
-        outputChannel.appendLine('🔍 Starting system level analysis...');
-        const systemResult = await analyzeSystemLevel(workspaceRoot, changedFilePath);
-        
-        if (systemResult && systemResult.circularDependencies && systemResult.circularDependencies.length > 0) {
-            outputChannel.appendLine(`Found ${systemResult.circularDependencies.length} circular dependencies at system level`);
-            return systemResult;
-        }
-        
-        // Return the most detailed analysis (system level) even if no circular deps found
-        outputChannel.appendLine('✅ Cascading analysis completed successfully');
-        return systemResult || classResult || namespaceResult;
     } catch (error) {
-        outputChannel.appendLine(`❌ Error in cascading analysis: ${error}`);
+        outputChannel.appendLine(`❌ SMART UNIFIED ANALYSIS: Error - ${error}`);
         throw error;
     }
 }
 
-/**
- * Analyze dependencies at namespace level using INCREMENTAL analysis
- */
-async function analyzeNamespaceLevel(workspaceRoot: string, changedFilePath?: string): Promise<AnalysisResult | null> {
-    try {
-        let analysisResult = await cacheManager.getCachedAnalysis('namespace');
-        
-        if (!analysisResult || !changedFilePath) {
-            analysisResult = await dependencyAnalyzer.analyzeProject(workspaceRoot, 'namespace');
-            await cacheManager.cacheAnalysis(analysisResult);
-        } else {
-            analysisResult = await updateNamespaceCache(analysisResult, changedFilePath, workspaceRoot);
-        }
-        
-        // Detect circular dependencies using smart subgraph checking for incremental updates
-        let circularDependencies: CircularDependency[];
-        if (changedFilePath) {
-            // Get affected objects for smart circular dependency checking
-            const parseResult = await incrementalParser.parseChangedFile(changedFilePath, workspaceRoot);
-            if (parseResult.namespaceAffected.length > 0) {
-                circularDependencies = circularDependencyDetector.findCircularDependenciesInSubgraph(
-                    analysisResult.dependencies,
-                    parseResult.namespaceAffected
-                );
-            } else {
-                circularDependencies = [];
-            }
-        } else {
-            // Full analysis - check entire graph
-            circularDependencies = circularDependencyDetector.findCircularDependencies(
-                analysisResult.dependencies
-            );
-        }
-        analysisResult.circularDependencies = circularDependencies;
-        
-        return analysisResult;
-    } catch (error) {
-        outputChannel.appendLine(`Error in namespace analysis: ${error}`);
-        return null;
-    }
-}
-
-/**
- * Analyze dependencies at class level using INCREMENTAL analysis
- */
-async function analyzeClassLevel(workspaceRoot: string, changedFilePath?: string): Promise<AnalysisResult | null> {
-    try {
-        let analysisResult = await cacheManager.getCachedAnalysis('class');
-        
-        if (!analysisResult || !changedFilePath) {
-            analysisResult = await dependencyAnalyzer.analyzeProject(workspaceRoot, 'class');
-            await cacheManager.cacheAnalysis(analysisResult);
-        } else {
-            analysisResult = await updateClassCache(analysisResult, changedFilePath, workspaceRoot);
-        }
-        
-        // Detect circular dependencies using smart subgraph checking for incremental updates
-        let circularDependencies: CircularDependency[];
-        if (changedFilePath) {
-            // Get affected objects for smart circular dependency checking
-            const parseResult = await incrementalParser.parseChangedFile(changedFilePath, workspaceRoot);
-            if (parseResult.classesAffected.length > 0) {
-                circularDependencies = circularDependencyDetector.findCircularDependenciesInSubgraph(
-                    analysisResult.dependencies,
-                    parseResult.classesAffected
-                );
-            } else {
-                circularDependencies = [];
-            }
-        } else {
-            // Full analysis - check entire graph
-            circularDependencies = circularDependencyDetector.findCircularDependencies(
-                analysisResult.dependencies
-            );
-        }
-        analysisResult.circularDependencies = circularDependencies;
-        
-        return analysisResult;
-    } catch (error) {
-        outputChannel.appendLine(`Error in class analysis: ${error}`);
-        return null;
-    }
-}
-
-/**
- * Analyze dependencies at system level using INCREMENTAL analysis
- */
-async function analyzeSystemLevel(workspaceRoot: string, changedFilePath?: string): Promise<AnalysisResult | null> {
-    try {
-        let analysisResult = await cacheManager.getCachedAnalysis('system');
-        
-        if (!analysisResult || !changedFilePath) {
-            analysisResult = await dependencyAnalyzer.analyzeProject(workspaceRoot, 'system');
-            await cacheManager.cacheAnalysis(analysisResult);
-        } else {
-            analysisResult = await updateSystemCache(analysisResult, changedFilePath, workspaceRoot);
-        }
-        
-        // Detect circular dependencies using smart subgraph checking for incremental updates
-        let circularDependencies: CircularDependency[];
-        if (changedFilePath) {
-            // Get affected objects for smart circular dependency checking
-            const parseResult = await incrementalParser.parseChangedFile(changedFilePath, workspaceRoot);
-            if (parseResult.systemsAffected.length > 0) {
-                circularDependencies = circularDependencyDetector.findCircularDependenciesInSubgraph(
-                    analysisResult.dependencies,
-                    parseResult.systemsAffected
-                );
-            } else {
-                circularDependencies = [];
-            }
-        } else {
-            // Full analysis - check entire graph
-            circularDependencies = circularDependencyDetector.findCircularDependencies(
-                analysisResult.dependencies
-            );
-        }
-        analysisResult.circularDependencies = circularDependencies;
-        
-        return analysisResult;
-    } catch (error) {
-        outputChannel.appendLine(`Error in system analysis: ${error}`);
-        return null;
-    }
-}
-
-/**
- * Update namespace cache with COMPLETE NAMESPACE analysis - TRUE incremental analysis
- *
- * CRITICAL: For namespace analysis, we must analyze ALL files in affected namespaces
- * because a single namespace can span multiple files and we need complete dependency picture
- */
-async function updateNamespaceCache(
-    cachedResult: AnalysisResult,
-    changedFilePath: string,
-    workspaceRoot: string
-): Promise<AnalysisResult> {
-    outputChannel.appendLine(`🔍 Incrementally updating NAMESPACE cache for: ${Utils.getRelativePath(changedFilePath)}`);
-    
-    // 1. Parse changed file to identify affected namespaces
-    const parseResult = await incrementalParser.parseChangedFile(changedFilePath, workspaceRoot);
-    outputChannel.appendLine(`📦 Found ${parseResult.namespaceAffected.length} affected namespaces: ${parseResult.namespaceAffected.join(', ')}`);
-    
-    // 2. For each affected namespace, analyze ALL files in that namespace (not just changed file)
-    for (const affectedNamespace of parseResult.namespaceAffected) {
-        outputChannel.appendLine(`🔍 Re-analyzing COMPLETE namespace: ${affectedNamespace}`);
-        
-        // Remove old namespace entry
-        cachedResult.dependencies.delete(affectedNamespace);
-        
-        // PERFORMANCE OPTIMIZATION: Use incremental analysis instead of full project scan
-        outputChannel.appendLine(`🚀 PERFORMANCE OPTIMIZATION: Using incremental namespace analysis for ${parseResult.namespaceAffected.length} affected namespaces`);
-        const startIncrementalAnalysis = Date.now();
-        const completeNamespaceAnalysis = await dependencyAnalyzer.analyzeSpecificNamespaces(
-            workspaceRoot,
-            parseResult.namespaceAffected,
-            cachedResult.dependencies
-        );
-        const incrementalAnalysisTime = Date.now() - startIncrementalAnalysis;
-        outputChannel.appendLine(`⚡ INCREMENTAL ANALYSIS took ${Utils.formatDuration(incrementalAnalysisTime)} - much faster than full project scan!`);
-        
-        // Add only the affected namespace back to cache
-        if (completeNamespaceAnalysis.has(affectedNamespace)) {
-            const namespaceDep = completeNamespaceAnalysis.get(affectedNamespace)!;
-            cachedResult.dependencies.set(affectedNamespace, namespaceDep);
-            outputChannel.appendLine(`📦 Updated namespace: ${affectedNamespace} (${namespaceDep.dependencies.length} dependencies)`);
-        } else {
-            outputChannel.appendLine(`📦 Removed namespace: ${affectedNamespace} (no dependencies found)`);
-        }
-    }
-    
-    // Update metadata
-    cachedResult.timestamp = new Date();
-    if (!cachedResult.affectedFiles.includes(changedFilePath)) {
-        cachedResult.affectedFiles.push(changedFilePath);
-    }
-    
-    // Cache the updated result
-    await cacheManager.cacheAnalysis(cachedResult);
-    
-    return cachedResult;
-}
-
-/**
- * Update class cache with COMPLETE AFFECTED CLASSES analysis - TRUE incremental analysis
- *
- * CRITICAL: For class analysis, if class A changes, we need to re-analyze ALL classes that
- * might reference class A, not just class A itself
- */
-async function updateClassCache(
-    cachedResult: AnalysisResult,
-    changedFilePath: string,
-    workspaceRoot: string
-): Promise<AnalysisResult> {
-    outputChannel.appendLine(`🔍 Incrementally updating CLASS cache for: ${Utils.getRelativePath(changedFilePath)}`);
-    
-    // 1. Parse changed file to identify affected classes
-    const parseResult = await incrementalParser.parseChangedFile(changedFilePath, workspaceRoot);
-    outputChannel.appendLine(`🏗️ Found ${parseResult.classesAffected.length} affected classes: ${parseResult.classesAffected.join(', ')}`);
-    
-    // 2. For affected classes, get fresh COMPLETE class analysis
-    // This ensures we catch all references from other files
-    outputChannel.appendLine(`🔍 Re-analyzing COMPLETE class dependencies for affected classes`);
-    
-    // Remove affected classes from cache
-    for (const affectedClass of parseResult.classesAffected) {
-        cachedResult.dependencies.delete(affectedClass);
-    }
-    
-    // PERFORMANCE OPTIMIZATION: Use incremental analysis instead of full project scan
-    outputChannel.appendLine(`🚀 PERFORMANCE OPTIMIZATION: Using incremental class analysis for ${parseResult.classesAffected.length} affected classes`);
-    const startIncrementalAnalysis = Date.now();
-    const completeClassAnalysis = await dependencyAnalyzer.analyzeSpecificClasses(
-        workspaceRoot,
-        parseResult.classesAffected,
-        cachedResult.dependencies
-    );
-    const incrementalAnalysisTime = Date.now() - startIncrementalAnalysis;
-    outputChannel.appendLine(`⚡ INCREMENTAL ANALYSIS took ${Utils.formatDuration(incrementalAnalysisTime)} - much faster than full project scan!`);
-    
-    // Add back only the affected classes with complete analysis
-    for (const affectedClass of parseResult.classesAffected) {
-        if (completeClassAnalysis.has(affectedClass)) {
-            const classDep = completeClassAnalysis.get(affectedClass)!;
-            cachedResult.dependencies.set(affectedClass, classDep);
-            outputChannel.appendLine(`🏗️ Updated class: ${affectedClass} (${classDep.dependencies.length} dependencies)`);
-        } else {
-            outputChannel.appendLine(`🏗️ Removed class: ${affectedClass} (no dependencies found)`);
-        }
-    }
-    
-    // Update metadata
-    cachedResult.timestamp = new Date();
-    if (!cachedResult.affectedFiles.includes(changedFilePath)) {
-        cachedResult.affectedFiles.push(changedFilePath);
-    }
-    
-    // Cache the updated result
-    await cacheManager.cacheAnalysis(cachedResult);
-    
-    return cachedResult;
-}
-
-/**
- * Update system cache with COMPLETE AFFECTED SYSTEMS analysis - TRUE incremental analysis
- *
- * CRITICAL: For system analysis, if system A changes, we need to re-analyze ALL systems that
- * might reference system A, not just system A itself
- */
-async function updateSystemCache(
-    cachedResult: AnalysisResult,
-    changedFilePath: string,
-    workspaceRoot: string
-): Promise<AnalysisResult> {
-    outputChannel.appendLine(`🔍 Incrementally updating SYSTEM cache for: ${Utils.getRelativePath(changedFilePath)}`);
-    
-    // 1. Parse changed file to identify affected systems
-    const parseResult = await incrementalParser.parseChangedFile(changedFilePath, workspaceRoot);
-    outputChannel.appendLine(`⚙️ Found ${parseResult.systemsAffected.length} affected systems: ${parseResult.systemsAffected.join(', ')}`);
-    
-    // 2. For affected systems, get fresh COMPLETE system analysis
-    // This ensures we catch all references from other files
-    outputChannel.appendLine(`🔍 Re-analyzing COMPLETE system dependencies for affected systems`);
-    
-    // Remove affected systems from cache
-    for (const affectedSystem of parseResult.systemsAffected) {
-        cachedResult.dependencies.delete(affectedSystem);
-    }
-    
-    // PERFORMANCE OPTIMIZATION: Use incremental analysis instead of full project scan
-    outputChannel.appendLine(`🚀 PERFORMANCE OPTIMIZATION: Using incremental system analysis for ${parseResult.systemsAffected.length} affected systems`);
-    const startIncrementalAnalysis = Date.now();
-    const completeSystemAnalysis = await dependencyAnalyzer.analyzeSpecificSystems(
-        workspaceRoot,
-        parseResult.systemsAffected,
-        cachedResult.dependencies
-    );
-    const incrementalAnalysisTime = Date.now() - startIncrementalAnalysis;
-    outputChannel.appendLine(`⚡ INCREMENTAL ANALYSIS took ${Utils.formatDuration(incrementalAnalysisTime)} - much faster than full project scan!`);
-    
-    // Add back only the affected systems with complete analysis
-    for (const affectedSystem of parseResult.systemsAffected) {
-        if (completeSystemAnalysis.has(affectedSystem)) {
-            const systemDep = completeSystemAnalysis.get(affectedSystem)!;
-            cachedResult.dependencies.set(affectedSystem, systemDep);
-            outputChannel.appendLine(`⚙️ Updated system: ${affectedSystem} (${systemDep.dependencies.length} dependencies)`);
-        } else {
-            outputChannel.appendLine(`⚙️ Removed system: ${affectedSystem} (no dependencies found)`);
-        }
-    }
-    
-    // Update metadata
-    cachedResult.timestamp = new Date();
-    if (!cachedResult.affectedFiles.includes(changedFilePath)) {
-        cachedResult.affectedFiles.push(changedFilePath);
-    }
-    
-    // Cache the updated result
-    await cacheManager.cacheAnalysis(cachedResult);
-    
-    return cachedResult;
-}
+// NOTE: Old separate update functions removed - now using unified strategy in Utils.performUnifiedPartialUpdate
 
 async function showFileWatcherStats(): Promise<void> {
     try {
@@ -662,9 +407,9 @@ async function analyzeProjectCommand() {
             timestamp: new Date()
         });
         
-        // Use the SAME cascading analysis system as file watcher for consistency
-        outputChannel.appendLine('🔄 Using cascading analysis system (namespace → class → system)');
-        const analysisResult = await performIncrementalCascadingAnalysis('', workspaceRoot);
+        // Use the SAME unified analysis system as file watcher for consistency
+        outputChannel.appendLine('🔄 Using unified analysis system (both levels together)');
+        const analysisResult = await performUnifiedAnalysisWrapper('', workspaceRoot);
         
         if (!analysisResult) {
             throw new Error('Cascading analysis failed to produce results');
@@ -725,12 +470,12 @@ async function showVisualizationCommand() {
         let analysisResult = await cacheManager.getCachedAnalysis(visualizationConfig.level);
         
         if (!analysisResult) {
-            // Only perform analysis if absolutely no cache exists - use NEW OPTIMIZED SYSTEM
-            outputChannel.appendLine('No cache available - using optimized cascading analysis for visualization');
-            analysisResult = await performIncrementalCascadingAnalysis('', workspaceRoot);
+            // Only perform analysis if absolutely no cache exists - use NEW UNIFIED SYSTEM
+            outputChannel.appendLine('No cache available - using unified analysis for visualization');
+            analysisResult = await performUnifiedAnalysisWrapper('', workspaceRoot);
             
             if (!analysisResult) {
-                throw new Error('Cascading analysis failed to produce results for visualization');
+                throw new Error('Unified analysis failed to produce results for visualization');
             }
         } else {
             outputChannel.appendLine(`✅ Using cached analysis for instant visualization (${analysisResult.dependencies.size} dependencies)`);

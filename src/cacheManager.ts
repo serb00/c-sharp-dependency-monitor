@@ -178,28 +178,47 @@ export class CacheManager {
     }
 
     /**
+     * Get the entire file cache map
+     */
+    public getFileCache(): Map<string, CachedFileData> {
+        return this.fileCache;
+    }
+
+    /**
+     * Get the last analysis time from metadata
+     */
+    public getLastAnalysisTime(): number | undefined {
+        // Find the most recent timestamp from memory cache
+        let latestTime = 0;
+        for (const data of this.memoryCache.values()) {
+            if (data.timestamp > latestTime) {
+                latestTime = data.timestamp;
+            }
+        }
+        return latestTime > 0 ? latestTime : undefined;
+    }
+
+    /**
      * Update file cache entry
      */
     public async updateFileCache(
-        filePath: string, 
-        namespace: string, 
-        classes: string[], 
+        filePath: string,
+        namespace: string,
+        classes: string[],
         dependencies: string[]
     ): Promise<void> {
         try {
-            const hash = await this.calculateFileHash(filePath);
+            const hash = await Utils.calculateFileHash(filePath);
             const stats = await fs.stat(filePath);
-
-            const fileData: CachedFileData = {
+            
+            const fileData = Utils.createFileCacheEntry(
                 filePath,
                 hash,
-                lastModified: stats.mtime.getTime(),
+                stats.mtime.getTime(),
                 namespace,
                 classes,
-                dependencies,
-                lastAnalyzed: Date.now()
-            };
-
+                dependencies
+            );
             this.fileCache.set(filePath, fileData);
             await this.saveFileCache();
 
@@ -215,44 +234,15 @@ export class CacheManager {
         try {
             this.outputChannel.appendLine(`🔧 CACHE INVALIDATION: Processing ${filePaths.length} files`);
             
-            let invalidated = 0;
-            const dependentFiles = new Set<string>();
+            const result = Utils.invalidateUnifiedCache(
+                filePaths,
+                this.fileCache,
+                this.memoryCache
+            );
 
-            for (const filePath of filePaths) {
-                this.outputChannel.appendLine(`  📁 Processing file: ${filePath}`);
-                
-                // Remove from file cache
-                if (this.fileCache.has(filePath)) {
-                    this.fileCache.delete(filePath);
-                    invalidated++;
-                    this.outputChannel.appendLine(`    ✅ Removed from file cache`);
-                } else {
-                    this.outputChannel.appendLine(`    ℹ️ File not in cache`);
-                }
-
-                // Find dependent files that might be affected
-                const deps = this.getDependentFiles(filePath);
-                this.outputChannel.appendLine(`    🔗 Found ${deps.length} dependent files`);
-                deps.forEach(dep => dependentFiles.add(dep));
-            }
-
-            // Invalidate dependent files as well
-            for (const depFile of dependentFiles) {
-                if (this.fileCache.has(depFile)) {
-                    this.fileCache.delete(depFile);
-                    invalidated++;
-                    this.outputChannel.appendLine(`    ✅ Invalidated dependent: ${depFile}`);
-                }
-            }
-
-            // Always clear memory cache when files change to force fresh analysis
-            const memoryCacheSize = this.memoryCache.size;
-            this.memoryCache.clear();
-            this.outputChannel.appendLine(`🗑️ Cleared ${memoryCacheSize} memory cache entries`);
-
-            if (invalidated > 0) {
+            if (result.invalidatedFiles.length > 0) {
                 await this.saveFileCache();
-                this.outputChannel.appendLine(`✅ CACHE INVALIDATION COMPLETE: ${invalidated} files invalidated (including ${dependentFiles.size} dependents)`);
+                this.outputChannel.appendLine(`✅ CACHE INVALIDATION COMPLETE: ${result.invalidatedFiles.length} files invalidated (including ${result.dependentFiles.length} dependents)`);
             } else {
                 this.outputChannel.appendLine(`ℹ️ CACHE INVALIDATION COMPLETE: No files were in cache, but memory cache cleared`);
             }
@@ -264,51 +254,21 @@ export class CacheManager {
 
     /**
      * Invalidate cache for all analysis levels when files change
-     * This ensures that namespace, class, and system level caches are all updated
+     * This ensures that namespace and class level caches are all updated
      */
     public async invalidateAllLevels(filePaths: string[]): Promise<void> {
         try {
             this.outputChannel.appendLine(`🔧 MULTI-LEVEL CACHE INVALIDATION: Processing ${filePaths.length} files for all analysis levels`);
             
-            // Clear all memory caches for all levels
-            const memoryCacheSize = this.memoryCache.size;
-            this.memoryCache.clear();
-            this.outputChannel.appendLine(`🗑️ Cleared ALL ${memoryCacheSize} memory cache entries (namespace, class, system)`);
-            
-            // Remove from file cache
-            let invalidated = 0;
-            const dependentFiles = new Set<string>();
+            const result = Utils.invalidateUnifiedCache(
+                filePaths,
+                this.fileCache,
+                this.memoryCache
+            );
 
-            for (const filePath of filePaths) {
-                this.outputChannel.appendLine(`  📁 Processing file: ${filePath}`);
-                
-                // Remove from file cache
-                if (this.fileCache.has(filePath)) {
-                    this.fileCache.delete(filePath);
-                    invalidated++;
-                    this.outputChannel.appendLine(`    ✅ Removed from file cache`);
-                } else {
-                    this.outputChannel.appendLine(`    ℹ️ File not in cache`);
-                }
-
-                // Find dependent files that might be affected
-                const deps = this.getDependentFiles(filePath);
-                this.outputChannel.appendLine(`    🔗 Found ${deps.length} dependent files`);
-                deps.forEach(dep => dependentFiles.add(dep));
-            }
-
-            // Invalidate dependent files as well
-            for (const depFile of dependentFiles) {
-                if (this.fileCache.has(depFile)) {
-                    this.fileCache.delete(depFile);
-                    invalidated++;
-                    this.outputChannel.appendLine(`    ✅ Invalidated dependent: ${depFile}`);
-                }
-            }
-
-            if (invalidated > 0) {
+            if (result.invalidatedFiles.length > 0) {
                 await this.saveFileCache();
-                this.outputChannel.appendLine(`✅ MULTI-LEVEL INVALIDATION COMPLETE: ${invalidated} files invalidated, ALL analysis levels cleared`);
+                this.outputChannel.appendLine(`✅ MULTI-LEVEL INVALIDATION COMPLETE: ${result.invalidatedFiles.length} files invalidated, ALL analysis levels cleared`);
             } else {
                 this.outputChannel.appendLine(`ℹ️ MULTI-LEVEL INVALIDATION COMPLETE: No files were in cache, but ALL analysis level caches cleared`);
             }
@@ -322,34 +282,17 @@ export class CacheManager {
      * Get files that depend on the given file
      */
     public getDependentFiles(filePath: string): string[] {
-        const dependents: string[] = [];
-        
-        // Get namespace and classes from the changed file
         const fileData = this.fileCache.get(filePath);
         if (!fileData) {
-            return dependents;
+            return [];
         }
-
-        // Find files that depend on this file's namespace or classes
-        for (const [otherPath, otherData] of this.fileCache) {
-            if (otherPath === filePath) continue;
-
-            // Check if other file depends on this file's namespace
-            if (otherData.dependencies.includes(fileData.namespace)) {
-                dependents.push(otherPath);
-                continue;
-            }
-
-            // Check if other file depends on this file's classes
-            for (const className of fileData.classes) {
-                if (otherData.dependencies.includes(className)) {
-                    dependents.push(otherPath);
-                    break;
-                }
-            }
-        }
-
-        return dependents;
+        
+        return Utils.findDependentFilesFromCache(
+            filePath,
+            fileData.namespace || '',
+            fileData.classes || [],
+            this.fileCache
+        );
     }
 
     /**
@@ -465,7 +408,7 @@ export class CacheManager {
 
     private async loadMemoryCache(): Promise<void> {
         try {
-            const levels: AnalysisLevel[] = ['namespace', 'class', 'system'];
+            const levels: AnalysisLevel[] = ['namespace', 'class'];
             
             for (const level of levels) {
                 const cachePath = path.join(this.cacheDir, `${level}-${CacheManager.CACHE_FILE}`);
@@ -587,18 +530,7 @@ export class CacheManager {
 
     private async isCacheValid(cached: CachedDependencyData, changedFiles: string[]): Promise<boolean> {
         try {
-            // Check if any of the changed files affect our cached dependencies
-            for (const filePath of changedFiles) {
-                const currentHash = await this.calculateFileHash(filePath);
-                const cachedHash = cached.fileHashes.get(filePath);
-
-                if (cachedHash && cachedHash !== currentHash) {
-                    return false; // File changed
-                }
-            }
-
-            return true;
-
+            return await Utils.validateCacheWithFileChanges(cached.fileHashes, changedFiles);
         } catch (error) {
             this.outputChannel.appendLine(`Error validating cache: ${error}`);
             return false;
@@ -606,36 +538,11 @@ export class CacheManager {
     }
 
     private async calculateFileHashes(dependencies: Map<string, DependencyNode>): Promise<Map<string, string>> {
-        const hashes = new Map<string, string>();
-
-        for (const [_, node] of dependencies) {
-            if (node.filePath) {
-                try {
-                    const hash = await this.calculateFileHash(node.filePath);
-                    hashes.set(node.filePath, hash);
-                } catch (error) {
-                    // File might not exist anymore, skip
-                }
-            }
-        }
-
-        return hashes;
+        return await Utils.calculateFileHashesForGraph(dependencies);
     }
 
     private async calculateFileHash(filePath: string): Promise<string> {
-        try {
-            const content = await fs.readFile(filePath, 'utf-8');
-            // Simple hash calculation (you could use crypto.createHash for better hashing)
-            let hash = 0;
-            for (let i = 0; i < content.length; i++) {
-                const char = content.charCodeAt(i);
-                hash = ((hash << 5) - hash) + char;
-                hash = hash & hash; // Convert to 32-bit integer
-            }
-            return hash.toString();
-        } catch (error) {
-            throw new Error(`Failed to calculate hash for ${filePath}: ${error}`);
-        }
+        return await Utils.calculateFileHash(filePath);
     }
 
     private formatCacheSize(): string {

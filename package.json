@@ -2,7 +2,7 @@
   "name": "c-sharp-dependency-monitor",
   "displayName": "C# Dependency Monitor",
   "description": "Real-time C# dependency analysis and circular dependency detection",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.104.0"
@@ -55,11 +55,10 @@
       "properties": {
         "csharpDependencyMonitor.analysisLevel": {
           "type": "string",
-          "enum": ["namespace", "class", "system"],
+          "enum": ["namespace", "class"],
           "enumDescriptions": [
             "Analyze dependencies at namespace level (fastest)",
-            "Analyze dependencies at class level (detailed)",
-            "Analyze only System classes (Unity ECS focused)"
+            "Analyze dependencies at class level (detailed)"
           ],
           "default": "namespace",
           "description": "Level of dependency analysis to perform"
