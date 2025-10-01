@@ -777,7 +777,7 @@ export class VisualizationPanel {
                     size: 14,
                     face: 'arial'
                 },
-                title: \`<strong>\${node.label}</strong><br>Type: \${node.classType || 'Unknown'}<br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>\`,
+                title: \`<strong>\${node.label}</strong><br>Type: \${node.classType || 'Unknown'}<br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br>\`,
                 group: nodeGroup
             };
         });
@@ -1420,7 +1420,7 @@ export class VisualizationPanel {
                         size: 14,
                         face: 'arial'
                     },
-                    title: \`<strong>\${node.label}</strong><br>Type: \${node.classType || 'Unknown'}<br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br><em>Double-click to open file</em>\`,
+                    title: \`<strong>\${node.label}</strong><br>Type: \${node.classType || 'Unknown'}<br>Namespace: \${node.namespace || 'Global'}\${node.filePath ? '<br>File: ' + node.filePath : ''}\${node.isCircular ? '<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>' : ''}<br>\`,
                     group: node.group
                 };
             });
@@ -1441,9 +1441,28 @@ export class VisualizationPanel {
             edges.update(originalEdges);
         }
         
-        // Handle double clicks to open files
+        // Handle double clicks to open files or show edge details
         network.on('doubleClick', function(properties) {
-            if (properties.nodes.length > 0) {
+            // Check if an edge was double-clicked
+            if (properties.edges.length > 0) {
+                const edgeId = properties.edges[0];
+                const edge = edges.get(edgeId);
+                
+                if (edge && vscode) {
+                    vscode.postMessage({
+                        command: 'edgeDoubleClicked',
+                        edgeData: {
+                            from: edge.from,
+                            to: edge.to,
+                            reasons: edge.title.split('\\n'), // Convert back from string to array
+                            isCircular: edge.color.color === '#f44336',
+                            weight: edge.width
+                        }
+                    });
+                }
+            }
+            // Check if a node was double-clicked
+            else if (properties.nodes.length > 0) {
                 const nodeId = properties.nodes[0];
                 if (vscode) {
                     vscode.postMessage({
@@ -1528,7 +1547,7 @@ export class VisualizationPanel {
             lines.push(`<br><span style="color: #f44336;">⚠️ Part of circular dependency</span>`);
         }
         
-        lines.push(`<br><em>Double-click to open file</em>`);
+        lines.push(`<br>`);
         
         return lines.join('');
     }
@@ -1569,6 +1588,9 @@ export class VisualizationPanel {
                 break;
             case 'changeAnalysisLevel':
                 await this.handleAnalysisLevelChange(message.level);
+                break;
+            case 'edgeDoubleClicked':
+                await this.handleEdgeDoubleClick(message.edgeData);
                 break;
             
             default:
@@ -1619,6 +1641,45 @@ export class VisualizationPanel {
             this.outputChannel.appendLine(`Request to open file for node: ${nodeId}`);
         } catch (error) {
             await Utils.showErrorMessage(`Failed to open file: ${error}`);
+        }
+    }
+
+    /**
+     * Handle edge double-click events - display edge (arrow) details
+     */
+    private async handleEdgeDoubleClick(edgeData: any): Promise<void> {
+        try {
+            // Handle reasons - they come as an array with single string that may contain \n separators
+            if (edgeData.reasons && edgeData.reasons.length > 0) {
+                let reasonIndex = 1;
+                edgeData.reasons.forEach(async (reasonBlock: string) => {
+                    // Split by newline in case multiple reasons are in one string
+                    const individualReasons = reasonBlock.split('\\n').filter((r: string) => r.trim().length > 0);
+                    const match = individualReasons[0].match(/^(.+):(\d+)\s*\(/);
+                    if (match) {
+                        const filePath = match[1];  // "Assets/Scripts/Combat/FindTargetSystem.cs"
+                        const lineNumber = parseInt(match[2], 10) - 1;  // 7 (VS Code uses 0-based indexing)
+                        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+                        if (workspaceFolder) {
+                            const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+                            // Open the file at the specific line
+                            const doc = await vscode.workspace.openTextDocument(fileUri);
+                            const editor = await vscode.window.showTextDocument(doc);
+                            const position = new vscode.Position(lineNumber, 0);
+                            editor.selection = new vscode.Selection(position, position);
+                            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+                        }
+                    }
+
+                });
+            } else {
+                this.outputChannel.appendLine('  No specific reasons available');
+            }
+            
+            // this.outputChannel.show(true); // Show output channel without taking focus
+            
+        } catch (error) {
+            this.outputChannel.appendLine(`Error handling edge double-click: ${error}`);
         }
     }
 

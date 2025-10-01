@@ -2,7 +2,7 @@
   "name": "c-sharp-dependency-monitor",
   "displayName": "C# Dependency Monitor",
   "description": "Real-time C# dependency analysis and circular dependency detection",
-  "version": "0.0.1",
+  "version": "0.0.3",
   "icon": "icon.png",
   "engines": {
     "vscode": "^1.104.0"
